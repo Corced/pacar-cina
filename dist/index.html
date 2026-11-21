@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>glm2api · captcha minter</title>
+<link rel="stylesheet" href="minter.css">
+</head>
+<body>
+<div class="wrap" style="max-width:640px">
+
+  <!--nav-->
+
+  <div class="bar">
+    <div class="logo">◈</div>
+    <div>
+      <h1><b>glm2api</b> · captcha minter</h1>
+      <div class="sub">donate spare browser cycles — mint captchas for free API access</div>
+    </div>
+  </div>
+
+  <div class="warnbox">✅ <b>This page is mint-only.</b> Your browser only solves Aliyun captchas locally. No proxy traffic flows through your machine, nothing about you is stored, and no conversation content ever passes through your browser.</div>
+  <div class="warnbox" id="w-keep" style="margin-top:8px"><b style="color:var(--bad)">Tap anywhere to arm background mode</b> — until then this tab may be throttled or frozen when you switch away.</div>
+
+  <div class="card">
+    <div class="stats" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat"><b class="kbig" id="w-state" style="color:var(--ok)">LIVE</b><span>status</span></div>
+      <div class="stat"><b class="kbig" id="w-served">0</b><span>mints</span></div>
+      <div class="stat"><b class="kbig" id="w-inflight">0</b><span>in flight</span></div>
+    </div>
+    <p class="big" style="margin:14px 0 0"><span class="dot on" id="w-dot"></span><span id="w-msg"><b style="color:var(--ok)">Connected.</b> Minting captchas for the pool. Thanks!</span></p>
+    <p class="hint" style="margin:8px 0 0">Your egress IP (what z.ai sees): <b id="w-ip">…</b></p>
+  </div>
+
+  <div class="card">
+    <h2>Activity</h2>
+    <div id="wlog"><div class="hint">Waiting for mint jobs…</div></div>
+  </div>
+
+  <p class="hint" style="text-align:center;opacity:.6;margin-top:8px">close the tab any time to stop helping</p>
+</div>
+
+<script src="glm-client.js"></script>
+<script src="minter.js"></script>
+</body>
+</html>

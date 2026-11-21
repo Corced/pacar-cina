@@ -1,0 +1,122 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: ◈
+    - generic [ref=e5]:
+      - heading "glm2api · sign in" [level=1] [ref=e6]
+      - generic [ref=e7]: pick a role to see what it can do
+  - generic [ref=e8]: A hub answered. Sessions are signed, and the partner and admin roles now require their key — the role is granted by the key, not by you picking it.
+  - generic [ref=e9]:
+    - heading "Choose your role" [level=2] [ref=e10]
+    - paragraph [ref=e11]: "Partner and admin need that role's key — the hub prints both when it starts, or you set them with GLM_KEYS. User needs no key: lending your own address grants no access to anyone else's."
+    - generic [ref=e12]:
+      - link "◇ User Lends a little. Offer your IP as an egress point Solve captchas for the pool Keep a tab open, stop any time Cannot add tokens or sessions" [ref=e13] [cursor=pointer]:
+        - /url: user.html
+        - generic [ref=e14]: ◇
+        - generic [ref=e15]: User
+        - paragraph [ref=e16]: Lends a little.
+        - list [ref=e17]:
+          - listitem [ref=e18]: Offer your IP as an egress point
+          - listitem [ref=e19]: Solve captchas for the pool
+          - listitem [ref=e20]: Keep a tab open, stop any time
+          - listitem [ref=e21]: Cannot add tokens or sessions
+      - link "◆ Partner Lends accounts. Add tokens and sessions Unlock more of the account pool Solve captchas for the pool Offer your IP as egress" [ref=e22] [cursor=pointer]:
+        - /url: partner.html
+        - generic [ref=e23]: ◆
+        - generic [ref=e24]: Partner
+        - paragraph [ref=e25]: Lends accounts.
+        - list [ref=e26]:
+          - listitem [ref=e27]: Add tokens and sessions
+          - listitem [ref=e28]: Unlock more of the account pool
+          - listitem [ref=e29]: Solve captchas for the pool
+          - listitem [ref=e30]: Offer your IP as egress
+      - link "◈ Admin Runs the pool. Everything user and partner do See partners, tokens and egress Change per-model features Clear sessions, drop partners" [ref=e31] [cursor=pointer]:
+        - /url: admin.html
+        - generic [ref=e32]: ◈
+        - generic [ref=e33]: Admin
+        - paragraph [ref=e34]: Runs the pool.
+        - list [ref=e35]:
+          - listitem [ref=e36]: Everything user and partner do
+          - listitem [ref=e37]: See partners, tokens and egress
+          - listitem [ref=e38]: Change per-model features
+          - listitem [ref=e39]: Clear sessions, drop partners
+      - link "✦ Superadmin Owns the directory. Everything admin does Seeded at startup, one account The only role that may manage people Needs its own key, like admin" [ref=e40] [cursor=pointer]:
+        - /url: admin.html
+        - generic [ref=e41]: ✦
+        - generic [ref=e42]: Superadmin
+        - paragraph [ref=e43]: Owns the directory.
+        - list [ref=e44]:
+          - listitem [ref=e45]: Everything admin does
+          - listitem [ref=e46]: Seeded at startup, one account
+          - listitem [ref=e47]: The only role that may manage people
+          - listitem [ref=e48]: Needs its own key, like admin
+    - paragraph [ref=e49]: All three roles mint captchas — that is the point of the pool. The differences are what each one may contribute and what each one may see.
+  - generic [ref=e50]:
+    - heading "What a role decides" [level=2] [ref=e51]
+    - table [ref=e53]:
+      - rowgroup [ref=e54]:
+        - row [ref=e55]:
+          - columnheader "Capability" [ref=e56]
+          - columnheader "User" [ref=e57]
+          - columnheader "Partner" [ref=e58]
+          - columnheader "Admin" [ref=e59]
+          - columnheader "Super" [ref=e60]
+      - rowgroup [ref=e61]:
+        - row [ref=e62]:
+          - cell "Solve captchas" [ref=e63]
+          - cell "yes" [ref=e64]
+          - cell "yes" [ref=e66]
+          - cell "yes" [ref=e68]
+          - cell "yes" [ref=e70]
+        - row [ref=e72]:
+          - cell "Contribute egress IP" [ref=e73]
+          - cell "yes" [ref=e74]
+          - cell "yes" [ref=e76]
+          - cell "yes" [ref=e78]
+          - cell "yes" [ref=e80]
+        - row [ref=e82]:
+          - cell "Add tokens / sessions" [ref=e83]
+          - cell "no" [ref=e84]
+          - cell "yes" [ref=e86]
+          - cell "yes" [ref=e88]
+          - cell "yes" [ref=e90]
+        - row [ref=e92]:
+          - cell "Raise account-pool allowance" [ref=e93]
+          - cell "no" [ref=e94]
+          - cell "yes" [ref=e96]
+          - cell "yes" [ref=e98]
+          - cell "yes" [ref=e100]
+        - row [ref=e102]:
+          - cell "See other partners" [ref=e103]
+          - cell "no" [ref=e104]
+          - cell "own only" [ref=e106]
+          - cell "all" [ref=e108]
+          - cell "all" [ref=e110]
+        - row [ref=e112]:
+          - cell "Change features or clear sessions" [ref=e113]
+          - cell "no" [ref=e114]
+          - cell "no" [ref=e116]
+          - cell "yes" [ref=e118]
+          - cell "yes" [ref=e120]
+        - row [ref=e122]:
+          - cell "Manage the people directory" [ref=e123]
+          - cell "no" [ref=e124]
+          - cell "no" [ref=e126]
+          - cell "no" [ref=e128]
+          - cell "yes" [ref=e130]
+  - generic [ref=e132]:
+    - heading "Sign-in options, honestly" [level=2] [ref=e133]
+    - list [ref=e134]:
+      - listitem [ref=e135]: A keyed session, no account. The hub checks the role's key in constant time, then issues a signed HttpOnly cookie. The role is granted by the key, not by you picking it — the admin key is the rule for who may claim admin.
+      - listitem [ref=e136]: "Where the keys come from: the hub generates a random one per privileged role at startup and prints it, or you pin them with GLM_KEYS. Keys are per-role, not per-person — except the superadmin, which is seeded as one named account (GLM_SUPERADMIN)."
+      - listitem [ref=e137]: Every page needs a session. Opening one while signed out redirects here; only this page and its styling stay public.
+      - listitem [ref=e138]: "What is still missing: key rotation and revocation, and persistence — a restart rotates the generated keys and drops every session, though a superadmin pinned with GLM_SUPERADMIN survives."
+      - listitem [ref=e139]: "Why it matters: the mint socket is refused without a session, and /status needs the admin role — so a stranger who reaches the port gets 401s, not the partner list or free mints."
+  - paragraph [ref=e140]:
+    - link "minter page" [ref=e141] [cursor=pointer]:
+      - /url: index.html
+    - text: ·
+    - link "reference projects" [ref=e142] [cursor=pointer]:
+      - /url: repos.html
+    - text: ·
+    - link "admin panel" [ref=e143] [cursor=pointer]:
+      - /url: admin.html

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<title>glm2api · sign in</title>
+<link rel="stylesheet" href="minter.css">
+<link rel="stylesheet" href="role.css">
+</head>
+<body>
+<div class="wrap narrow">
+
+  <div class="bar">
+    <div class="logo">◈</div>
+    <div>
+      <h1><b>glm2api</b> · sign in</h1>
+      <div class="sub">pick a role to see what it can do</div>
+    </div>
+  </div>
+
+  <div class="warnbox" id="signnote">
+    Checking for a hub on this origin…
+  </div>
+
+  <div class="card">
+    <h2>Choose your role</h2>
+    <p class="note" style="margin-top:0">Partner and admin need that role's key — the hub prints
+    both when it starts, or you set them with <span class="mono">GLM_KEYS</span>. User needs no
+    key: lending your own address grants no access to anyone else's.</p>
+    <div class="roles" id="roles">
+      <a class="role" href="user.html" data-role="user">
+        <div class="ic" style="color:var(--info)">◇</div>
+        <b>User</b>
+        <p class="lead">Lends a little.</p>
+        <ul class="priv">
+          <li class="has">Offer your IP as an egress point</li>
+          <li class="has">Solve captchas for the pool</li>
+          <li class="has">Keep a tab open, stop any time</li>
+          <li class="no">Cannot add tokens or sessions</li>
+        </ul>
+      </a>
+
+      <a class="role" href="partner.html" data-role="partner">
+        <div class="ic" style="color:var(--acc2)">◆</div>
+        <b>Partner</b>
+        <p class="lead">Lends accounts.</p>
+        <ul class="priv">
+          <li class="has">Add tokens and sessions</li>
+          <li class="has">Unlock more of the account pool</li>
+          <li class="has">Solve captchas for the pool</li>
+          <li class="has">Offer your IP as egress</li>
+        </ul>
+      </a>
+
+      <a class="role" href="admin.html" data-role="admin">
+        <div class="ic" style="color:var(--warn)">◈</div>
+        <b>Admin</b>
+        <p class="lead">Runs the pool.</p>
+        <ul class="priv">
+          <li class="has">Everything user and partner do</li>
+          <li class="has">See partners, tokens and egress</li>
+          <li class="has">Change per-model features</li>
+          <li class="has">Clear sessions, drop partners</li>
+        </ul>
+      </a>
+
+      <a class="role" href="admin.html" data-role="superadmin">
+        <div class="ic" style="color:var(--bad)">✦</div>
+        <b>Superadmin</b>
+        <p class="lead">Owns the directory.</p>
+        <ul class="priv">
+          <li class="has">Everything admin does</li>
+          <li class="has">Seeded at startup, one account</li>
+          <li class="has">The only role that may manage people</li>
+          <li class="no">Needs its own key, like admin</li>
+        </ul>
+      </a>
+    </div>
+    <div class="keybox" id="keyform" hidden>
+      <label for="keyinput" class="note" style="display:block;margin-bottom:6px">That role's key</label>
+      <div style="display:flex;gap:8px">
+        <input id="keyinput" type="password" autocomplete="off" spellcheck="false"
+               placeholder="paste the partner or admin key" class="mono"
+               style="flex:1;min-width:0;background:var(--bg2);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:7px 9px;font-size:12px">
+        <button id="keygo" type="button"
+                style="background:var(--acc);color:#fff;border:0;border-radius:6px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer">sign in</button>
+      </div>
+      <p class="note" style="margin:8px 0 0">The key is only sent to this hub to get a session. It is
+      never stored in this page, and the hub never echoes it back.</p>
+    </div>
+    <p class="note">All three roles mint captchas — that is the point of the pool. The differences are
+    what each one may contribute and what each one may see.</p>
+  </div>
+
+  <div class="card">
+    <h2>What a role decides</h2>
+    <div class="tbl-scroll">
+      <table class="tbl">
+        <thead><tr><th>Capability</th><th>User</th><th>Partner</th><th>Admin</th><th>Super</th></tr></thead>
+        <tbody>
+          <tr><td>Solve captchas</td><td><span class="tag ok">yes</span></td><td><span class="tag ok">yes</span></td><td><span class="tag ok">yes</span></td><td><span class="tag ok">yes</span></td></tr>
+          <tr><td>Contribute egress IP</td><td><span class="tag ok">yes</span></td><td><span class="tag ok">yes</span></td><td><span class="tag ok">yes</span></td><td><span class="tag ok">yes</span></td></tr>
+          <tr><td>Add tokens / sessions</td><td><span class="tag bad">no</span></td><td><span class="tag ok">yes</span></td><td><span class="tag ok">yes</span></td><td><span class="tag ok">yes</span></td></tr>
+          <tr><td>Raise account-pool allowance</td><td><span class="tag bad">no</span></td><td><span class="tag ok">yes</span></td><td><span class="tag ok">yes</span></td><td><span class="tag ok">yes</span></td></tr>
+          <tr><td>See other partners</td><td><span class="tag bad">no</span></td><td><span class="tag warn">own only</span></td><td><span class="tag ok">all</span></td><td><span class="tag ok">all</span></td></tr>
+          <tr><td>Change features or clear sessions</td><td><span class="tag bad">no</span></td><td><span class="tag bad">no</span></td><td><span class="tag ok">yes</span></td><td><span class="tag ok">yes</span></td></tr>
+          <tr><td>Manage the people directory</td><td><span class="tag bad">no</span></td><td><span class="tag bad">no</span></td><td><span class="tag bad">no</span></td><td><span class="tag ok">yes</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Sign-in options, honestly</h2>
+    <ul class="priv">
+      <li class="has"><b style="color:var(--fg)">A keyed session, no account.</b> The hub checks the
+        role's key in constant time, then issues a signed HttpOnly cookie. The role is granted by
+        the key, not by you picking it — the admin key is the rule for who may claim admin.</li>
+      <li class="has"><b style="color:var(--fg)">Where the keys come from:</b> the hub generates a
+        random one per privileged role at startup and prints it, or you pin them with
+        <span class="mono">GLM_KEYS</span>. Keys are per-role, not per-person — except the
+        superadmin, which is seeded as one named account
+        (<span class="mono">GLM_SUPERADMIN</span>).</li>
+      <li class="has"><b style="color:var(--fg)">Every page needs a session.</b> Opening one while
+        signed out redirects here; only this page and its styling stay public.</li>
+      <li class="has"><b style="color:var(--fg)">What is still missing:</b> key rotation and
+        revocation, and persistence — a restart rotates the generated keys and drops every
+        session, though a superadmin pinned with <span class="mono">GLM_SUPERADMIN</span> survives.</li>
+      <li class="has"><b style="color:var(--fg)">Why it matters:</b> the mint socket is refused
+        without a session, and <span class="mono">/status</span> needs the admin role — so a
+        stranger who reaches the port gets 401s, not the partner list or free mints.</li>
+    </ul>
+  </div>
+
+  <p class="hint" style="text-align:center;opacity:.6;margin-top:8px">
+    <a href="index.html" style="color:var(--mut)">minter page</a> ·
+    <a href="repos.html" style="color:var(--mut)">reference projects</a> ·
+    <a href="admin.html" style="color:var(--mut)">admin panel</a>
+  </p>
+</div>
+
+<script src="roles.js"></script>
+<script>ROLES.mountLogin();</script>
+</body>
+</html>

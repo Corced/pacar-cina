@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<title>glm2api · partner</title>
+<link rel="stylesheet" href="minter.css">
+<link rel="stylesheet" href="role.css">
+</head>
+<body>
+<div class="wrap narrow">
+
+  <!--nav-->
+
+  <div class="bar">
+    <div class="logo">◆</div>
+    <div class="grow">
+      <h1><b>partner</b> · lend accounts</h1>
+      <div class="sub">tokens and sessions that unlock more of the pool</div>
+    </div>
+    <span class="who" id="who">no role chosen</span>
+  </div>
+
+  <div class="warnbox" id="arm"><b style="color:var(--bad)">Tap anywhere to arm background mode</b> — until then this tab may be throttled or frozen when you switch away.</div>
+
+  <div class="card">
+    <h2>What you have contributed</h2>
+    <div class="kv">
+      <span class="k">Tokens added</span><span class="v" id="c-tokens">—</span>
+      <span class="k">Sessions added</span><span class="v" id="c-sessions">—</span>
+      <span class="k">Yours, with status</span><span class="v" id="c-mine">—</span>
+      <span class="k">Pool allowance these unlock</span><span class="v">0 accounts</span>
+      <span class="k">Your egress IP</span><span class="v mono" id="ip">…</span>
+      <span class="k">This tab has been open</span><span class="v" id="uptime">0s</span>
+    </div>
+    <p class="note">The counts come from the hub's <span class="mono">/tokens</span> endpoint and cover
+    every partner, not just you. A donation's status is <b>unverified</b> until an admin proves it against
+    Aliyun's captcha API (then valid or invalid). "Pool allowance" is still 0: how many accounts a donated
+    value unlocks is a hub policy that has not been decided.</p>
+  </div>
+
+  <div class="card">
+    <h2>Add a token or a session</h2>
+    <form id="addform" autocomplete="off">
+      <div class="field">
+        <label for="kind">What are you adding?</label>
+        <select class="in" id="kind">
+          <option value="token">Device token (the pool's usual unit)</option>
+          <option value="session">Session (a signed-in account)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="secret">Paste it here</label>
+        <textarea class="in area" id="secret" spellcheck="false"
+          placeholder="Paste the value. It is never displayed again and never written to this page's log."></textarea>
+      </div>
+      <div class="row">
+        <button class="btn go" type="submit">Add to pool</button>
+        <span class="note" id="donate-status" style="margin:0">sign in first — the hub needs a session to accept a donation</span>
+      </div>
+    </form>
+    <div class="blocknote">
+      <b style="color:var(--fg)">Read this before pasting anything real.</b> With a hub listening and
+      you signed in, submitting sends the value to the hub over HTTPS/localhost, which keeps only a
+      fingerprint (a short SHA-256 hash) of it — never the value itself, in its log or anywhere else —
+      plus your person name if you signed in with one. The hub then <b>checks it straight away</b>
+      against Aliyun's captcha API and records what came back: <b>valid</b>, <b>invalid</b>, or
+      <b>unverified</b> when it could not reach Aliyun at all. So the starting status is "verifying",
+      and it settles within seconds — an <b>unverified</b> donation means "never proven", not
+      "proven good". Nothing spends a held token yet. Do not paste a credential you could not afford
+      to lose.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>What partner adds over user</h2>
+    <ul class="priv">
+      <li class="has">Add tokens and sessions — the account-pool unlock</li>
+      <li class="has">Raise how many accounts the pool may hold</li>
+      <li class="has">See your own contribution, not everyone's</li>
+      <li class="has">Everything a user can do, including egress and minting</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Where tokens come from</h2>
+    <div class="sw">
+      <div class="grow"><div class="nm">chatglm.cn</div><div class="ds">Aliyun captcha — the same family the minter already drives.</div></div>
+      <span class="tag ok">known</span>
+    </div>
+    <div class="sw">
+      <div class="grow"><div class="nm">chat.z.ai</div><div class="ds">Not confirmed whether a captcha guards token minting; the recorded client mints guest tokens over a signed POST with no captcha step visible.</div></div>
+      <span class="tag warn">watch</span>
+    </div>
+    <p class="note">Watching means: re-check on each run whether a captcha challenge appears, and if one
+    does, add it as a second scene rather than assuming the first one covers it.</p>
+  </div>
+
+  <div class="card">
+    <h2>Activity</h2>
+    <div id="log"><div>Starting…</div></div>
+  </div>
+</div>
+
+<script src="roles.js"></script>
+<script>ROLES.mountPartner();</script>
+</body>
+</html>

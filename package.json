@@ -1,0 +1,19 @@
+{
+  "name": "glm2api-minter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "glm2api captcha minter page — clean-room rebuild",
+  "author": "Corced",
+  "scripts": {
+    "build": "node build.mjs",
+    "hub": "node server/hub.mjs",
+    "check": "node check-html.mjs && node check-links.mjs && node check-hub.mjs && node check-hub-multi.mjs && node check-config.mjs && node check-chat.mjs && node check-people.mjs && node check-docs.mjs",
+    "check:hub": "node check-hub.mjs",
+    "check:multi": "node check-hub-multi.mjs",
+    "check:config": "node check-config.mjs",
+    "check:chat": "node check-chat.mjs",
+    "check:people": "node check-people.mjs",
+    "check:docs": "node check-docs.mjs"
+  }
+}

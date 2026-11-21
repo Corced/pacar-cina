@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>glm2api · repository dissection</title>
+<link rel="stylesheet" href="minter.css">
+<link rel="stylesheet" href="repos.css">
+</head>
+<body>
+<div class="wrap" style="max-width:700px">
+
+  <!--nav-->
+
+  <div class="bar">
+    <div class="logo">◈</div>
+    <div>
+      <h1><b>glm2api</b> · repository dissection</h1>
+      <div class="sub">three reference projects, compared feature by feature</div>
+    </div>
+  </div>
+
+  <div class="page-head">
+    <p class="hint" style="margin:0 0 6px">Each project turns a chat account into an OpenAI-style API. They differ in <b>language</b>,
+    <b>protocols</b>, <b>account handling</b> and <b>how they get captcha/device tokens</b>. Read as source;
+    nothing here was run.</p>
+    <p class="hint" style="margin:0">use the bar above to go back</p>
+  </div>
+
+  <div class="card">
+    <h2>The one-line answer to "why three?"</h2>
+    <p style="font-size:13px;margin:0;color:#c9d1d9">They are three generations of the same idea the person described: <b>D3-vin's</b> is the fullest
+    server (three API protocols, account pool, proxy rotation), <b>pingmike2's</b> is a smaller single-binary
+    port of it for a VPS, and <b>chaoticmindv's</b> is a Node version that replaces the whole captcha-and-token
+    problem with a real browser. No single one has everything; that is exactly what your new project can fix.</p>
+  </div>
+
+  <div class="repo" id="d3vin">
+    <h2>D3-vin / GLM-ZAI-2API</h2>
+    <div class="slug">Go · internal/app · 27 files</div>
+    <div class="tags"><span class="tag go">Go</span><span class="tag have">most complete</span></div>
+    <div class="label">What it has</div>
+    <ul>
+      <li><b>Three API protocols</b> — OpenAI, Anthropic and Responses</li>
+      <li><b>Vision</b> (GLM-5v-Turbo) and a tool-calling adapter with six parsing strategies</li>
+      <li><b>Browser TLS fingerprint</b> (Chrome via tls-client) on every upstream request</li>
+      <li><b>Account pool</b> from a token file, checked at startup, rotated on <span style="font-family:monospace">USER_BLOCKED</span>, with guest fallback</li>
+      <li><b>WAF proxy rotation</b> with a 10-minute dead-proxy timeout</li>
+      <li><b>In-process captcha</b> — device-data built with two AES passes ported from the Aliyun widget</li>
+      <li>A separate <b>Playwright token collector</b> binary</li>
+    </ul>
+    <div class="label">What's lacking</div>
+    <ul class="gaps">
+      <li>No partner-facing page — token gathering is a side binary, not something a partner opens and leaves running</li>
+      <li>Captcha is solved <i>in-process</i>, so no human is in the loop when the challenge changes</li>
+      <li>Everything runs on one machine: no way for partners to contribute their own egress</li>
+    </ul>
+  </div>
+
+  <div class="repo" id="pingmike2">
+    <h2>pingmike2 / zai2api</h2>
+    <div class="slug">Go · flat layout · 20 files</div>
+    <div class="tags"><span class="tag go">Go</span><span class="tag lack">simpler</span></div>
+    <div class="label">What it has</div>
+    <ul>
+      <li><b>Single binary</b> meant to be dropped on a VPS, with a web dashboard</li>
+      <li>OpenAI-compatible <span style="font-family:monospace">/v1</span> endpoints with tool calling</li>
+      <li><b>SQLite device-token store</b> taken oldest-first and deleted after use (a simple queue)</li>
+      <li><b>In-process captcha</b>: build args → track hash → compress → encrypt → verify, returning a base64 param</li>
+      <li>Token pool with explicit batch/target/low-water numbers (150 / 750 / 50)</li>
+      <li>One static proxy for the WAF, with notes on datacenter IPs being rejected</li>
+    </ul>
+    <div class="label">What's lacking</div>
+    <ul class="gaps">
+      <li>Only the OpenAI protocol — no Anthropic, no Responses, no vision</li>
+      <li>No account pool and no guest fallback: the simpler token path of its parent is gone</li>
+      <li>Proxy is <b>one fixed address</b>, not a rotating pool — a single point of failure</li>
+      <li>No partner page and no browser-based collection, so it inherits the captcha fragility</li>
+    </ul>
+  </div>
+
+  <div class="repo" id="chaoticmindv">
+    <h2>chaoticmindv / zai2api</h2>
+    <div class="slug">Node.js · 19 files</div>
+    <div class="tags"><span class="tag js">Node</span><span class="tag have">real browser</span></div>
+    <div class="label">What it has</div>
+    <ul>
+      <li><b>One-click Windows start</b> — the easiest of the three to actually run</li>
+      <li>OpenAI-compatible endpoints with streaming; GLM's thinking passed through as <span style="font-family:monospace">reasoning_content</span></li>
+      <li>Same Aliyun captcha constants and flow as the Go projects</li>
+      <li><b>Playwright collector</b>: drives a real browser, triggers the captcha by sending a message, waits for the token to appear, then harvests tokens in batches into SQLite</li>
+      <li>A background worker that re-checks the pool every 60 s while under target, every 10 min when full</li>
+    </ul>
+    <div class="label">What's lacking</div>
+    <ul class="gaps">
+      <li>Needs a full browser install per machine — heavy, and awkward to run headless on a server</li>
+      <li>No account pool and no proxy rotation at all</li>
+      <li>Only the OpenAI protocol</li>
+      <li>The collector is still a <i>single</i> browser on the operator's machine, not many partners</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Side by side</h2>
+    <div class="scroll-x">
+      <table class="cmp">
+        <thead>
+          <tr><th>Feature</th><th>D3-vin</th><th>pingmike2</th><th>chaoticmindv</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Language</td><td>Go</td><td>Go</td><td>Node.js</td></tr>
+          <tr><td>OpenAI protocol</td><td class="yes">yes</td><td class="yes">yes</td><td class="yes">yes</td></tr>
+          <tr><td>Anthropic + Responses</td><td class="yes">yes</td><td class="no">no</td><td class="no">no</td></tr>
+          <tr><td>Vision</td><td class="yes">yes</td><td class="no">no</td><td class="no">no</td></tr>
+          <tr><td>Tool calling</td><td class="yes">yes (6 strategies)</td><td class="yes">yes</td><td class="yes">yes</td></tr>
+          <tr><td>TLS fingerprint</td><td class="yes">yes (Chrome)</td><td class="no">no</td><td class="part">via browser</td></tr>
+          <tr><td>Account pool</td><td class="yes">yes + guest fallback</td><td class="no">no</td><td class="no">no</td></tr>
+          <tr><td>Captcha</td><td class="part">in-process</td><td class="part">in-process</td><td class="yes">real browser</td></tr>
+          <tr><td>Token store</td><td class="yes">SQLite pool</td><td class="yes">SQLite FIFO</td><td class="yes">SQLite batches</td></tr>
+          <tr><td>Proxy handling</td><td class="yes">rotating pool</td><td class="part">one static proxy</td><td class="no">none</td></tr>
+          <tr><td>Partner-facing page</td><td class="no">no</td><td class="no">no</td><td class="no">no</td></tr>
+          <tr><td>Runs easily on Windows</td><td class="no">no</td><td class="part">binary only</td><td class="yes">one click</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Read from each project's source in this workspace. "yes" is a feature found in the code,
+    "part" means present but limited, "no" means not found — not found is not proof it is absent everywhere.</p>
+  </div>
+
+  <div class="card">
+    <h2>What this rebuild does NOT do yet</h2>
+    <p class="note" style="margin-top:0"><b>"Not done" means one specific step is unproven — not that
+    the code is missing or broken.</b> Every item below is written down for the same reason: a claim
+    nobody checked is worse than an honest blank. Each one names the single thing that would close it.</p>
+    <ul style="margin:0;padding-left:18px">
+      <li style="font-size:12.5px;color:#c9d1d9;margin-bottom:6px"><b>A server now exists</b> — one Node process, no dependencies, with real sessions, a key-gated mint socket, an even spread of work across partners, a token pool that expires and refills, and donation checking. What is still unproven is a <b>live upstream call</b>: nobody supplied a credential, so chat answers 501 with its reason instead of inventing a reply. Close it by setting <b>GLM_UPSTREAM</b>.</li>
+      <li style="font-size:12.5px;color:#c9d1d9;margin-bottom:6px"><b>No real captcha mint has been observed.</b> The widget is now configured from the hub's <b>/config</b> (env-driven, with the captured values as defaults), so it loads the real SDK whenever a hub answers. But minting happens in a partner's browser against the live site, and no browser with a screen has run it here. Close it by opening the minter tab on a machine that can reach chat.z.ai.</li>
+      <li style="font-size:12.5px;color:#c9d1d9;margin-bottom:6px"><b>Nothing spends a held token.</b> Donations arrive, get checked against Aliyun, and expire on a timer — but the only thing that would spend one is a working upstream, which is the first gap.</li>
+      <li style="font-size:12.5px;color:#c9d1d9"><b>No Tor yet.</b> It appears as an egress class in the admin panel, but there is no SOCKS5 client or circuit rotation behind it, so no traffic is routed through a volunteer's connection.</li>
+    </ul>
+    <p class="note">Read the three projects above as design input, not as code to copy: what they solved
+    (protocols, token queues, proxy rotation) tells you what this server should grow next.</p>
+  </div>
+
+  <div class="card">
+    <h2>What none of them has (your gap)</h2>
+    <ul style="margin:0;padding-left:18px">
+      <li style="font-size:12.5px;color:#c9d1d9;margin-bottom:6px"><b>A partner page.</b> All three gather tokens on the operator's own machine. Your minter page inverts that: partners open a page, keep it in a tab, and their browsers solve captchas and donate egress — no shared secret, no installed software.</li>
+      <li style="font-size:12.5px;color:#c9d1d9;margin-bottom:6px"><b>Spread-out rate limits.</b> None of them paces requests across several egress points; they either use one proxy or a pool of proxies the operator owns.</li>
+      <li style="font-size:12.5px;color:#c9d1d9;margin-bottom:6px"><b>Two token sources.</b> The person wants partners to contribute from either chat.z.ai or chatglm.cn; all three hard-code one upstream.</li>
+      <li style="font-size:12.5px;color:#c9d1d9"><b>An honest consent surface.</b> The minter page states plainly what runs in the partner's browser — the three projects have no such page.</li>
+    </ul>
+  </div>
+
+  <p class="hint" style="text-align:center;opacity:.6;margin-top:8px">analysis page — not part of the minter page itself</p>
+</div>
+</body>
+</html>

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<title>glm2api · user</title>
+<link rel="stylesheet" href="minter.css">
+<link rel="stylesheet" href="role.css">
+</head>
+<body>
+<div class="wrap narrow">
+
+  <!--nav-->
+
+  <div class="bar">
+    <div class="logo">◇</div>
+    <div class="grow">
+      <h1><b>user</b> · lend an IP</h1>
+      <div class="sub">solve captchas, offer your address, stop any time</div>
+    </div>
+    <span class="who" id="who">no role chosen</span>
+  </div>
+
+  <div class="warnbox" id="arm"><b style="color:var(--bad)">Tap anywhere to arm background mode</b> — until then this tab may be throttled or frozen when you switch away.</div>
+
+  <div class="card">
+    <h2>Your contribution</h2>
+    <div class="kv">
+      <span class="k">Egress IP (what z.ai sees)</span><span class="v mono" id="ip">…</span>
+      <span class="k">This tab has been open</span><span class="v" id="uptime">0s</span>
+      <span class="k">Captchas solved</span><span class="v">0</span>
+    </div>
+    <p class="note">The solver count is zero because nothing is asking for a mint yet. A hub would send
+    jobs down the socket and these numbers would move.</p>
+  </div>
+
+  <div class="card">
+    <h2>What your address is used for</h2>
+    <p class="hint" style="margin-top:0">
+      The pool sends some requests out through your address instead of the operator's. That spread is
+      the whole point: if one address gets marked by the far end, the others keep working.
+    </p>
+    <p class="note" style="margin-top:8px">
+      This is your address doing the job a Tor exit normally would — one egress among many, rotating
+      by request rather than fixed. Your address is not a Tor node and is not announced as one; it is
+      simply one of several exits the pool can pick, so a mark against one does not fall on all.
+    </p>
+    <div class="sw">
+      <div class="grow"><div class="nm">Offer my IP as an egress point</div><div class="ds">This is the user role's privilege. Off by default.</div></div>
+      <div class="tgl" role="switch" aria-checked="false" data-sw="egress" data-name="Egress offer" tabindex="0"><i></i></div>
+    </div>
+    <div class="sw">
+      <div class="grow"><div class="nm">Solve captchas for the pool</div><div class="ds">All three roles can do this.</div></div>
+      <div class="tgl" role="switch" aria-checked="false" data-sw="solve" data-name="Captcha solving" tabindex="0"><i></i></div>
+    </div>
+    <div class="sw">
+      <div class="grow"><div class="nm">Only while this tab is open</div><div class="ds">Nothing runs when the tab is closed or asleep.</div></div>
+      <div class="tgl" role="switch" aria-checked="true" data-sw="tabonly" data-name="Tab-only mode" tabindex="0"><i></i></div>
+    </div>
+    <p class="note">These switches are remembered in this browser and nothing else happens: there is no
+    hub to tell about them. The page is honest about that rather than pretending the offer is live.</p>
+  </div>
+
+  <div class="card">
+    <h2>What a user cannot do</h2>
+    <ul class="priv">
+      <li class="no">Add tokens or sessions — that is the partner role</li>
+      <li class="no">Raise the account-pool allowance</li>
+      <li class="no">See other people in the pool</li>
+      <li class="no">Change features or clear sessions</li>
+    </ul>
+    <p class="note">If you have accounts to contribute, sign in as a partner on the
+    <a href="login.html">sign-in page</a> — that role gets its own page.</p>
+  </div>
+
+  <div class="card">
+    <h2>Activity</h2>
+    <div id="log"><div>Starting…</div></div>
+  </div>
+</div>
+
+<script src="roles.js"></script>
+<script>ROLES.mountUser();</script>
+</body>
+</html>

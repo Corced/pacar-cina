@@ -1,0 +1,57 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "last_run": "2026-11-21T07:57:56.829Z",
+    "root": "C:\\Time Wasting\\Portfolio\\2API\\GLM2API\\app",
+    "include_patterns": [
+      "public/**/*",
+      "server/**/*.mjs",
+      "*.mjs",
+      "package.json",
+      "README.md"
+    ],
+    "exclude_patterns": [
+      "dist/**",
+      ".repos/**"
+    ],
+    "exceptions": []
+  },
+  "file_hashes": {
+    "README.md": "613a4e7f458b457b5534e885674be029",
+    "build.mjs": "8f5ed3618af1c4e398122d055bd84684",
+    "check-chat.mjs": "5e10ae92d9f116f64ace052d87cd2e22",
+    "check-config.mjs": "e3a33176d020a3f934a48e3c5c949126",
+    "check-docs.mjs": "a2f732aca0ace2af06512f339a43e657",
+    "check-html-selftest.mjs": "58c1deda80a5446b7cd979b510fc685c",
+    "check-html.mjs": "21cf063c17312b0698401e06f3cd912f",
+    "check-hub-multi.mjs": "d57453327832004ab08985eb010b1c5a",
+    "check-hub.mjs": "b4da2bf470ec2a11f6867754addfd4a4",
+    "check-links.mjs": "7bf783b45e7671305348793c74321499",
+    "check-people.mjs": "6e297371123c9e5fbbf6422da1cb0ebd",
+    "check-serve.mjs": "5aeaa3c72c243cc64d67c014c3b1af81",
+    "fetch-repos.mjs": "8f0013184c7c5bc24f02b1e76a187019",
+    "package.json": "783450b5839b745d78abae8f90b2e6d6",
+    "public/admin.css": "030314d5406b11b9a36d315b8c750ba4",
+    "public/admin.html": "ce68f5829bf54f750e7461101657775a",
+    "public/admin.js": "32af25fea71dde9b0cd7d175270b785c",
+    "public/codemap.md": "476cff06d56b3be86edaa53a72e27600",
+    "public/glm-client.js": "96b32006244a123be542ca6409fad542",
+    "public/index.html": "b4f58cb66cc3ca8e41bcb521f44c52e3",
+    "public/login.html": "f058d5ddcd02d1ab1ea66053ed55cfcb",
+    "public/minter.css": "12e35838da1c5c3516c3e169dd50382a",
+    "public/minter.js": "178ba58e74d023c7529b8f08554e6a56",
+    "public/partner.html": "6ac67ccb2a8de5952d34586f1c5e995b",
+    "public/repos.css": "0a93c4ed6a1e6927795d187aed84b6cf",
+    "public/repos.html": "6879e8cf861837a73934c205cedb7b6e",
+    "public/role.css": "66d327751d58a0a49008581ffce97e49",
+    "public/roles.js": "783ec5f6e453be2f247d4dcecf1bf308",
+    "public/user.html": "2bbe5bc3058438edd9404683a7737b2e",
+    "server/hub.mjs": "579e4c7862fdfded8388b1810f9a0eca",
+    "server/ws.mjs": "0777397167f6f3b543a8e2d797d33973"
+  },
+  "folder_hashes": {
+    ".": "9fc8fda8e995af010ecbe69311fa5466",
+    "public": "a8cbba3542282a4990b70ce5b3b520b2",
+    "server": "e30a54c89c26b8740edc45b00101fd1e"
+  }
+}

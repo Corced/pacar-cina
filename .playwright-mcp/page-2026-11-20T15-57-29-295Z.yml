@@ -1,0 +1,503 @@
+- generic [ref=f1e2]:
+  - generic [ref=f1e3]:
+    - generic [ref=f1e4]: superadmin · root
+    - generic [ref=f1e5]:
+      - link "▸ panel" [ref=f1e6] [cursor=pointer]:
+        - /url: /admin.html
+      - link "minter" [ref=f1e7] [cursor=pointer]:
+        - /url: /index.html
+      - link "reference repos" [ref=f1e8] [cursor=pointer]:
+        - /url: /repos.html
+      - link "switch role" [ref=f1e9] [cursor=pointer]:
+        - /url: /login.html
+  - generic [ref=f1e10]:
+    - generic [ref=f1e11]: ◈
+    - generic [ref=f1e12]:
+      - heading "glm2api · admin" [level=1] [ref=f1e13]
+      - generic [ref=f1e14]: minter hub control panel · operator only
+    - generic [ref=f1e15]: running
+    - generic [ref=f1e17]: checking hub…
+  - generic [ref=f1e18]:
+    - text: "This is the operator view. It never runs in a partner's browser. Partner pages only ever see the minter screen, never these numbers. Sign-in:"
+    - link "login.html" [ref=f1e19] [cursor=pointer]:
+      - /url: login.html
+    - text: — user, partner and admin roles; partner and admin need that role's key. The hub is server/hub.mjs; the panels below fill with real numbers once it is running (npm run hub), and honestly show placeholders when it is not.
+  - generic [ref=f1e20]:
+    - generic [ref=f1e21]:
+      - heading "Status" [level=2] [ref=f1e22]
+      - generic [ref=f1e23]:
+        - generic [ref=f1e24]: Upstream
+        - generic [ref=f1e25]: partners
+      - generic [ref=f1e26]:
+        - generic [ref=f1e27]: Listen
+        - generic [ref=f1e28]: :5210
+      - generic [ref=f1e29]:
+        - generic [ref=f1e30]: OpenAI endpoint
+        - generic [ref=f1e31]: http://127.0.0.1:5210/v1
+      - generic [ref=f1e32]:
+        - generic [ref=f1e33]: Hub socket
+        - generic [ref=f1e34]: ws://127.0.0.1:5210/minter/ws
+      - generic [ref=f1e35]:
+        - generic [ref=f1e36]: Token store
+        - generic [ref=f1e37]: 0 tokens
+      - generic [ref=f1e38]:
+        - generic [ref=f1e39]: Signed in as
+        - generic [ref=f1e40]: Athaar
+      - generic [ref=f1e41]:
+        - generic [ref=f1e42]: FE version
+        - generic [ref=f1e43]: prod-fe-1.1.79
+      - generic [ref=f1e44]:
+        - generic [ref=f1e45]: Live sessions
+        - generic [ref=f1e46]: "2"
+      - generic [ref=f1e47]:
+        - generic [ref=f1e48]: Uptime
+        - generic [ref=f1e49]: 0m 0s
+      - generic [ref=f1e50]:
+        - generic [ref=f1e51]: Roles are keyed
+        - generic [ref=f1e52]: "keyed roles: admin, partner, superadmin need a key; user is open"
+      - generic [ref=f1e53]:
+        - generic [ref=f1e54]: Mint socket
+        - generic [ref=f1e55]: a session is required on /minter/ws
+    - generic [ref=f1e56]:
+      - heading "Partner pool" [level=2] [ref=f1e57]
+      - generic [ref=f1e58]:
+        - generic [ref=f1e59]: Minters connected
+        - generic [ref=f1e60]: "0"
+      - generic [ref=f1e61]:
+        - generic [ref=f1e62]: Mints served
+        - generic [ref=f1e63]: "0"
+      - generic [ref=f1e64]:
+        - generic [ref=f1e65]: In flight
+        - generic [ref=f1e66]: "0"
+      - generic [ref=f1e67]:
+        - generic [ref=f1e68]: Distinct egress IPs
+        - generic [ref=f1e69]: "0"
+      - generic [ref=f1e70]:
+        - generic [ref=f1e71]: Job timeout
+        - generic [ref=f1e72]: 45000 ms
+      - generic [ref=f1e73]:
+        - generic [ref=f1e74]: Job spread
+        - generic [ref=f1e75]: serial
+      - generic [ref=f1e76]: Spread is how far apart jobs are handed to different partners, so rate limits land on several egress points instead of one. Default paces jobs 20–45 s apart.
+    - generic [ref=f1e77]:
+      - heading "Token pool" [level=2] [ref=f1e78]
+      - generic [ref=f1e79]:
+        - generic [ref=f1e80]: Available tokens
+        - generic [ref=f1e81]: "0"
+      - generic [ref=f1e82]:
+        - generic [ref=f1e83]: Partner donations
+        - generic [ref=f1e84]: 0 tokens + 0 sessions
+      - generic [ref=f1e85]:
+        - generic [ref=f1e86]: Target
+        - generic [ref=f1e87]: "750"
+      - generic [ref=f1e88]:
+        - generic [ref=f1e89]: Low water
+        - generic [ref=f1e90]: "50"
+      - generic [ref=f1e91]:
+        - generic [ref=f1e92]: Consumed
+        - generic [ref=f1e93]: "0"
+      - generic [ref=f1e94]:
+        - generic [ref=f1e95]: Expired
+        - generic [ref=f1e96]: "0"
+      - generic [ref=f1e97]:
+        - generic [ref=f1e98]: Entry lifetime
+        - generic [ref=f1e99]: 30 min
+      - generic [ref=f1e102]: "Life cycle: an entry is usable for 30 minutes, then the sweep moves it to expired (0 so far, 0 consumed). Below low-water: the hub is asking partners for more now. Nothing spends an entry yet — there is no live upstream to spend it on."
+      - generic [ref=f1e103]: Donations from partner.html are counted here (kind only — the hub keeps a fingerprint, never the value) and each one is checked against Aliyun as it arrives, so a donation's status is a real answer rather than a claim.
+    - generic [ref=f1e104]:
+      - heading "Features (per model)" [level=2] [ref=f1e105]
+      - generic [ref=f1e106]:
+        - generic [ref=f1e107]: Model
+        - combobox [ref=f1e108]:
+          - option "glm-4.7" [selected]
+          - option "glm-4.6"
+          - option "glm-5v-turbo"
+      - generic [ref=f1e109]:
+        - generic [ref=f1e110]: Web search
+        - generic [ref=f1e111] [cursor=pointer]: "OFF"
+      - generic [ref=f1e112]:
+        - generic [ref=f1e113]: Thinking
+        - generic [ref=f1e114] [cursor=pointer]: "ON"
+      - generic [ref=f1e115]:
+        - generic [ref=f1e116]: Preview mode
+        - generic [ref=f1e117] [cursor=pointer]: "OFF"
+      - generic [ref=f1e118]:
+        - generic [ref=f1e119]: Persist history
+        - generic [ref=f1e120] [cursor=pointer]: "OFF"
+      - generic [ref=f1e121]: "Image generation stays off: the upstream file upload rejects guest sessions, so vision needs a signed-in token."
+    - generic [ref=f1e122]:
+      - heading "Models" [level=2] [ref=f1e123]
+      - generic [ref=f1e124]:
+        - generic [ref=f1e125]: Sources
+        - generic [ref=f1e126]: z.ai · cn
+      - generic [ref=f1e127]:
+        - generic [ref=f1e128]: Bases
+        - generic [ref=f1e129]: glm-4.7 · glm-4.6 · glm-5v-turbo
+      - generic [ref=f1e130]:
+        - generic [ref=f1e131]: Suffixes
+        - generic [ref=f1e132]: "-think · -search · -deepresearch"
+      - generic [ref=f1e133]:
+        - generic [ref=f1e134]: Catalog size
+        - generic [ref=f1e135]: 3 ids
+      - generic [ref=f1e136]:
+        - generic [ref=f1e137]: Request example
+        - generic [ref=f1e138]: z.ai/glm-5.3-think
+      - generic [ref=f1e139]: "Every id is <source>/<base>[-suffix]: z.ai/ goes to chat.z.ai (overseas), cn/ to chatglm.cn; -think, -search, -deepresearch set the feature flags. Bare names (e.g. glm-4.7) still work as aliases for z.ai. GET /v1/models lists the catalog with each id's declared features."
+    - generic [ref=f1e140]:
+      - heading "Upstream" [level=2] [ref=f1e141]
+      - generic [ref=f1e142]:
+        - generic [ref=f1e143]: Configured
+        - generic [ref=f1e144]: "no"
+      - generic [ref=f1e145]:
+        - generic [ref=f1e146]: Chat requests
+        - generic [ref=f1e147]: "0"
+      - generic [ref=f1e148]:
+        - generic [ref=f1e149]: Succeeded
+        - generic [ref=f1e150]: "0"
+      - generic [ref=f1e151]:
+        - generic [ref=f1e152]: Failed
+        - generic [ref=f1e153]: "0"
+      - generic [ref=f1e154]:
+        - generic [ref=f1e155]: Last model
+        - generic [ref=f1e156]: —
+      - generic [ref=f1e157]:
+        - generic [ref=f1e158]: Last status
+        - generic [ref=f1e159]: "-"
+      - generic [ref=f1e160]:
+        - generic [ref=f1e161]: Pool entries spent
+        - generic [ref=f1e162]: "0"
+      - generic [ref=f1e163]: "Without GLM_UPSTREAM set, chat answers 501 rather than guessing where to send it. With it set, the hub forwards there (the model id still picks the path, so cn/… keeps its own endpoint), signs each request, and attaches one minted param from the pool as captcha_verify_param. A 401/403/429 puts the entry back instead of burning it; an x-glm-pool: empty response means the request went out with no param."
+    - generic [ref=f1e164]:
+      - heading "People" [level=2] [ref=f1e165]
+      - generic [ref=f1e166]:
+        - generic [ref=f1e167]: Registered people
+        - generic [ref=f1e168]: "1"
+      - generic [ref=f1e169]:
+        - generic [ref=f1e170]: Directory storage
+        - generic [ref=f1e171]: file-backed (GLM_STATE_FILE)
+      - table [ref=f1e173]:
+        - rowgroup [ref=f1e174]:
+          - row [ref=f1e175]:
+            - columnheader "Person" [ref=f1e176]
+            - columnheader "Role" [ref=f1e177]
+            - columnheader "Source" [ref=f1e178]
+            - columnheader "Sign-ins" [ref=f1e179]
+            - columnheader "Donations" [ref=f1e180]
+            - columnheader [ref=f1e181]
+        - rowgroup [ref=f1e182]:
+          - row [ref=f1e183]:
+            - cell "root" [ref=f1e184]
+            - cell "superadmin" [ref=f1e185]
+            - cell "env (GLM_PEOPLE)" [ref=f1e187]
+            - cell "1" [ref=f1e188]
+            - cell "0" [ref=f1e189]
+            - cell [ref=f1e190]:
+              - button "Rotate" [disabled] [ref=f1e191] [cursor=pointer]
+              - button "Revoke" [disabled] [ref=f1e192] [cursor=pointer]
+      - generic [ref=f1e193]:
+        - textbox "name" [ref=f1e194]
+        - combobox [ref=f1e195]:
+          - option "partner" [selected]
+          - option "user"
+          - option "admin"
+          - option "superadmin"
+        - button "Create" [ref=f1e196] [cursor=pointer]
+      - generic [ref=f1e197]: The registry comes from GLM_PEOPLE (name=role:key, comma-separated) plus people created here by a superadmin, plus one superadmin seeded at startup from GLM_SUPERADMIN (or a key generated and printed once). A person signs in with their own key and their name then rides on their sessions, mint sockets and donations. Revoke drops the key, the live sessions and the open sockets on the next request; Rotate issues a new key and kills the old one. A key that came from the environment cannot be revoked here — remove it there. Keys are shown only in the moment a new one is created.
+    - generic [ref=f1e198]:
+      - heading "Egress" [level=2] [ref=f1e199]
+      - generic [ref=f1e200]:
+        - generic [ref=f1e201]: Direct
+        - generic [ref=f1e202] [cursor=pointer]: "ON"
+      - generic [ref=f1e203]:
+        - generic [ref=f1e204]: Proxy pool
+        - generic [ref=f1e205] [cursor=pointer]: "OFF"
+      - generic [ref=f1e206]:
+        - generic [ref=f1e207]: Tor
+        - generic [ref=f1e208] [cursor=pointer]: "OFF"
+      - generic [ref=f1e209]:
+        - generic [ref=f1e210]: Partner browsers
+        - generic [ref=f1e211] [cursor=pointer]: "ON"
+      - generic [ref=f1e212]:
+        - generic [ref=f1e213]: Dead proxy TTL
+        - generic [ref=f1e214]: 10 min
+      - generic [ref=f1e215]:
+        - generic [ref=f1e216]: Proxy list — one per line
+        - textbox "Proxy list — one per line" [ref=f1e217]: http://user:pass@proxy.example.com:8080 socks5://127.0.0.1:1080
+      - generic [ref=f1e218]: "Format: scheme://[user:pass@]host:port, one per line (http, https or socks5). A 127.0.0.1 entry means a proxy on the machine running the hub — not on the laptop you are reading this from."
+      - generic [ref=f1e219]: The reference projects keep captcha traffic direct and only rotate proxies for chat requests, because the captcha widget breaks behind some proxies. Tor is added here as a fourth class, since a Tor exit is itself a shared, already-flagged IP.
+    - generic [ref=f1e220]:
+      - heading "Endpoints" [level=2] [ref=f1e221]
+      - generic [ref=f1e222]:
+        - generic [ref=f1e223]:
+          - generic [ref=f1e224]: POST
+          - generic [ref=f1e225]: /v1/chat/completions
+        - generic [ref=f1e226]: OpenAI-compatible chat, stream and non-stream, tool calling
+      - generic [ref=f1e227]:
+        - generic [ref=f1e228]:
+          - generic [ref=f1e229]: GET
+          - generic [ref=f1e230]: /v1/models
+        - generic [ref=f1e231]: "The catalog: source/base[-suffix] ids with declared features"
+      - generic [ref=f1e232]:
+        - generic [ref=f1e233]:
+          - generic [ref=f1e234]: POST
+          - generic [ref=f1e235]: /v1/messages
+        - generic [ref=f1e236]: Anthropic-shaped messages, for apps that hardcode Claude models
+      - generic [ref=f1e237]:
+        - generic [ref=f1e238]:
+          - generic [ref=f1e239]: POST
+          - generic [ref=f1e240]: /tokens
+        - generic [ref=f1e241]: Partner donation; keeps a fingerprint and a status, never the value
+      - generic [ref=f1e242]:
+        - generic [ref=f1e243]:
+          - generic [ref=f1e244]: GET
+          - generic [ref=f1e245]: /tokens
+        - generic [ref=f1e246]: Donation counts by status; ?mine=1 yours, ?all=1 the full admin list
+      - generic [ref=f1e247]:
+        - generic [ref=f1e248]:
+          - generic [ref=f1e249]: POST
+          - generic [ref=f1e250]: /captcha/verify
+        - generic [ref=f1e251]: Exchange a captcha param (or a donated value) with Aliyun; admin-only
+      - generic [ref=f1e252]:
+        - generic [ref=f1e253]:
+          - generic [ref=f1e254]: GET
+          - generic [ref=f1e255]: /people
+        - generic [ref=f1e256]: The per-person registry, admin-only
+      - generic [ref=f1e257]:
+        - generic [ref=f1e258]:
+          - generic [ref=f1e259]: WS
+          - generic [ref=f1e260]: /minter/ws
+        - generic [ref=f1e261]: "Partner channel: hello, ping, job, captcha — the contract the minter page speaks"
+      - generic [ref=f1e262]:
+        - generic [ref=f1e263]:
+          - generic [ref=f1e264]: POST
+          - generic [ref=f1e265]: /features
+        - generic [ref=f1e266]: Per-model feature toggles
+      - generic [ref=f1e267]:
+        - generic [ref=f1e268]:
+          - generic [ref=f1e269]: GET
+          - generic [ref=f1e270]: /status
+        - generic [ref=f1e271]: Session status, polled by this page
+      - generic [ref=f1e272]:
+        - generic [ref=f1e273]:
+          - generic [ref=f1e274]: GET
+          - generic [ref=f1e275]: /admin/health
+        - generic [ref=f1e276]: Health check
+      - generic [ref=f1e277]:
+        - generic [ref=f1e278]:
+          - generic [ref=f1e279]: POST
+          - generic [ref=f1e280]: /admin/session/clear
+        - generic [ref=f1e281]: Clear all session history
+    - generic [ref=f1e282]:
+      - heading "Connected partners" [level=2] [ref=f1e283]
+      - table [ref=f1e285]:
+        - rowgroup [ref=f1e286]:
+          - row [ref=f1e287]:
+            - columnheader "Session" [ref=f1e288]
+            - columnheader "Person" [ref=f1e289]
+            - columnheader "Egress IP" [ref=f1e290]
+            - columnheader "Role" [ref=f1e291]
+            - columnheader "Protocol" [ref=f1e292]
+            - columnheader "Mints" [ref=f1e293]
+        - rowgroup [ref=f1e294]:
+          - row [ref=f1e295]:
+            - cell "no partners connected" [ref=f1e296]
+      - generic [ref=f1e297]: One row per open minter tab. Role is the session that opened the socket (a socket with no session is refused now); Person is the named person behind it when the session was signed with a GLM_PEOPLE key. Egress IP is what the partner's browser reports on hello, so the operator can see how many separate addresses the pool is spreading across.
+    - generic [ref=f1e298]:
+      - heading "Donations" [level=2] [ref=f1e299]
+      - generic [ref=f1e300]:
+        - generic [ref=f1e301]: Held
+        - generic [ref=f1e302]: —
+      - generic [ref=f1e303]:
+        - generic [ref=f1e304]: Statuses
+        - generic [ref=f1e305]:
+          - generic [ref=f1e306]: valid 0
+          - generic [ref=f1e307]: invalid 0
+          - generic [ref=f1e308]: unverified 0
+      - table [ref=f1e310]:
+        - rowgroup [ref=f1e311]:
+          - row [ref=f1e312]:
+            - columnheader "Kind" [ref=f1e313]
+            - columnheader "Fingerprint" [ref=f1e314]
+            - columnheader "Person" [ref=f1e315]
+            - columnheader "Status" [ref=f1e316]
+            - columnheader "Checked" [ref=f1e317]
+        - rowgroup [ref=f1e318]:
+          - row [ref=f1e319]:
+            - cell "no donations held" [ref=f1e320]
+      - generic [ref=f1e321]: "Each row is one donated token or session, shown by its SHA-256 fingerprint — the value itself is never stored or displayed. valid/invalid come from a real Aliyun captcha exchange (POST /captcha/verify with {fp, value} or {param}); unverified means not proven. Verification is admin-only."
+    - generic [ref=f1e322]:
+      - heading "Captcha verification" [level=2] [ref=f1e323]
+      - generic [ref=f1e324]:
+        - generic [ref=f1e325]: Exchanges attempted
+        - generic [ref=f1e326]: "0"
+      - generic [ref=f1e327]:
+        - generic [ref=f1e328]: Aliyun said valid
+        - generic [ref=f1e329]: "0"
+      - generic [ref=f1e330]:
+        - generic [ref=f1e331]: Aliyun said invalid
+        - generic [ref=f1e332]: "0"
+      - generic [ref=f1e333]: "The hub exchanges a minted captchaVerifyParam with Aliyun's public verify API — the same scene the minter page drives. Nothing is invented: when the network is unreachable the status is unverified with the reason, never a fabricated valid. The three reference projects instead port the widget's device-data generator in-process; this hub asks the real endpoint, so a \"valid\" here is what Aliyun actually answered."
+    - generic [ref=f1e334]:
+      - heading "Activity" [level=2] [ref=f1e335]
+      - generic [ref=f1e336]: 15:57:29 admin panel ready — polling http://127.0.0.1:5210/status
+      - generic [ref=f1e338]:
+        - button "Refresh" [ref=f1e339] [cursor=pointer]
+        - button "Clear log" [ref=f1e340] [cursor=pointer]
+        - button "Drop all partners" [ref=f1e341] [cursor=pointer]
+      - generic [ref=f1e342]: "Controls are inert on a static host: there is no hub behind this page to obey them. With a hub at /minter/ws the same buttons post to it and the numbers fill in."
+    - generic [ref=f1e343]:
+      - heading "Not done yet — and what would finish each one" [level=2] [ref=f1e344]
+      - table [ref=f1e346]:
+        - rowgroup [ref=f1e347]:
+          - row [ref=f1e348]:
+            - columnheader "Gap" [ref=f1e349]
+            - columnheader "State" [ref=f1e350]
+            - columnheader "What it needs — and who already solved it" [ref=f1e351]
+        - rowgroup [ref=f1e352]:
+          - row [ref=f1e353]:
+            - cell "Upstream / real chat replies" [ref=f1e354]
+            - cell "forwarding + signing proven" [ref=f1e355]
+            - cell [ref=f1e357]:
+              - text: "A local stub proves the whole call: GLM_UPSTREAM really redirects the destination (the source in the model id still picks the path), GLM_UPSTREAM_KEY rides as a bearer credential, x-signature is a real HMAC over the flattened prompt, the suffix features arrive in the reference projects' features shape, and one pool entry rides each call (check-chat.mjs). What is still unproven: a successful call to the real chat.z.ai / chatglm.cn, which needs a credential. The shape of that call — FE-version and region headers, account rotation on USER_BLOCKED with guest fallback — is what"
+              - link "D3-vin / GLM-ZAI-2API" [ref=f1e358] [cursor=pointer]:
+                - /url: repos.html#d3vin
+              - text: got furthest with;
+              - link "pingmike2 / zai2api" [ref=f1e359] [cursor=pointer]:
+                - /url: repos.html#pingmike2
+              - text: is the shorter Go version to read first.
+          - row [ref=f1e360]:
+            - cell "Partner token/session donation" [ref=f1e361]
+            - cell "verified on arrival" [ref=f1e362]
+            - cell "partner.html's form POSTs to the hub's /tokens endpoint (fingerprint + person + status, never the value). The hub now checks each donation against Aliyun as soon as it lands, so a status of valid or invalid comes from a real exchange and anything else settles as unverified rather than being claimed good. A minted param is what the chat path spends; donated values still stop at verified-and-recorded." [ref=f1e364]
+          - row [ref=f1e365]:
+            - cell "Per-person identity" [ref=f1e366]
+            - cell "revocable at runtime" [ref=f1e367]
+            - 'cell "GLM_PEOPLE (name=role:key) gives each person their own key; their name rides on sessions, mint sockets and donations, and /people lists the directory to admins. A superadmin is seeded at startup from GLM_SUPERADMIN (or a generated key printed once), creates people with POST /people and sees the key once. An admin revokes or rotates from the People card below: the key dies on the next request, and the person''s live sessions and open mint sockets are dropped with it. With GLM_STATE_FILE set the directory is a JSON file written on every change, so a revocation survives a restart. A key pinned in the environment refuses both actions on purpose." [ref=f1e369]'
+          - row [ref=f1e370]:
+            - cell "Real captcha mint" [ref=f1e371]
+            - cell "unproven" [ref=f1e372]
+            - cell [ref=f1e374]:
+              - text: "glm-client.js now takes the scene from the hub's /config (env-driven, captured defaults) and loads the real SDK whenever a hub answers; with no hub it runs the labelled demo. The hub can exchange a param with Aliyun, but no real verification parameter has been produced here yet. Reference:"
+              - link "chaoticmindv / zai2api" [ref=f1e375] [cursor=pointer]:
+                - /url: repos.html#chaoticmindv
+              - text: is the one to read here — it triggers the widget by sending a message and waits for the token to appear, which is the same browser path this project uses.
+              - link "pingmike2" [ref=f1e376] [cursor=pointer]:
+                - /url: repos.html#pingmike2
+              - text: "shows the opposite choice: the whole captcha solved in-process (build args → track hash → compress → encrypt → verify), which needs no browser at all but breaks when Aliyun changes the challenge."
+          - row [ref=f1e377]:
+            - cell "Tor egress" [ref=f1e378]
+            - cell "missing" [ref=f1e379]
+            - cell [ref=f1e381]:
+              - text: "Only a toggle exists. Needs a SOCKS5 client, circuit rotation and a policy for when to use it over direct. Reference: none of the three has Tor, so there is nothing to copy. The nearest pattern is"
+              - link "D3-vin" [ref=f1e382] [cursor=pointer]:
+                - /url: repos.html#d3vin
+              - text: "'s WAF proxy rotation with a 10-minute dead-proxy timeout — the same bookkeeping (mark a route dead, stop using it, retry elsewhere) applies to circuits, and its proxy.txt one-address-per-line format is a sane shape for a circuit list."
+          - row [ref=f1e383]:
+            - cell "Token pool behaviour" [ref=f1e384]
+            - cell "has a consumer" [ref=f1e385]
+            - cell [ref=f1e387]:
+              - text: "Entries carry an expiry, the sweep moves expired ones out (counted, never dropped silently), and the hub refills towards low-water and target. The chat path now takes an entry and spends it: the oldest minted param is attached to the upstream call as captcha_verify_param, a 401/403/429 returns it unspent, and the response carries x-glm-pool: spent|empty. An empty pool still forwards, labelled, rather than refusing. Reference:"
+              - link "pingmike2 / zai2api" [ref=f1e388] [cursor=pointer]:
+                - /url: repos.html#pingmike2
+              - text: "'s queue discipline — ORDER BY id LIMIT 1, delete after use, refill below 50 — is the shape this now follows, minus SQLite: the hub's queue is memory."
+          - row [ref=f1e389]:
+            - cell "Job scheduling" [ref=f1e390]
+            - cell "server-side now" [ref=f1e391]
+            - cell "The hub picks the partner asked longest ago, one job in flight each. The minter page's local demo pool still runs when no hub answers." [ref=f1e393]
+          - row [ref=f1e394]:
+            - cell "Admin authentication" [ref=f1e395]
+            - cell "keyed + revocable" [ref=f1e396]
+            - 'cell "Admin, partner and superadmin sessions need that role''s key, compared in constant time; user is open on purpose. /status returns 401 without a session and 403 without an admin-level role. A person from GLM_PEOPLE can sign under their own name, and the seeded superadmin signs under its own. Every page also needs a session now: signed out, it redirects to login.html?next=…. Revocation and rotation are live: POST /people/revoke and POST /people/rotate take effect on the next request, and drop the person''s sessions and sockets." [ref=f1e398]'
+          - row [ref=f1e399]:
+            - cell "Job authorisation" [ref=f1e400]
+            - cell "session required" [ref=f1e401]
+            - cell "The /minter/ws upgrade now refuses a socket with no session, and the partner table shows which role opened it. GLM_WS_AUTH=open restores anonymous sockets, and the hub warns loudly when it does." [ref=f1e403]
+          - row [ref=f1e404]:
+            - cell "Two token sources" [ref=f1e405]
+            - cell "catalogued" [ref=f1e406]
+            - 'cell "The model catalog covers both: z.ai/… routes to chat.z.ai (its /api/v2 path, overseas region) and cn/… to chatglm.cn (its /api/v1 path). What is not yet exercised: a live call through each, which needs an upstream credential." [ref=f1e408]'
+          - row [ref=f1e409]:
+            - cell "Persistence" [ref=f1e410]
+            - cell "directory on disk" [ref=f1e411]
+            - 'cell "With GLM_STATE_FILE set, the people directory — created people, their roles and keys, and revocations — is a JSON file written on every change (0600) and reloaded on start, so a revoked key stays revoked across a restart. The pool, sessions and donation log stay in memory on purpose: pool entries are captcha params that expire in half an hour, so persisting them would be a liability rather than a feature." [ref=f1e413]'
+          - row [ref=f1e414]:
+            - cell "Endpoints listed above" [ref=f1e415]
+            - cell "forward when configured" [ref=f1e416]
+            - cell "/v1/models answers with the full catalog. /v1/chat/completions resolves the model id, spends one pool entry, signs the request and forwards to GLM_UPSTREAM; without it, 501 with its reason. No credential ships with the project, so forwarding is opt-in — and the forwarded call itself is proven against a stub, not the real upstream." [ref=f1e418]
+          - row [ref=f1e419]:
+            - cell "Background-tab survival" [ref=f1e420]
+            - cell "unverified" [ref=f1e421]
+            - cell "The silent oscillator is in place, but whether real browsers keep it alive long-term has not been observed." [ref=f1e423]
+          - row [ref=f1e424]:
+            - cell "Visual confirmation" [ref=f1e425]
+            - cell "unverified" [ref=f1e426]
+            - cell "The look is matched from recorded design tokens and checked statically; no browser screenshot has been compared against the original." [ref=f1e428]
+      - generic [ref=f1e429]: "Kept deliberately blunt: a gap that is written down is a gap someone can close, and a \"done\" that was never verified is worse than an honest blank."
+      - generic [ref=f1e430]:
+        - text: "In plain words — what \"not done\" means here. It does not mean the code is broken or half-written. It means one specific step has not been proven because it needs something this machine does not have:"
+        - list [ref=f1e431]:
+          - listitem [ref=f1e432]: No live upstream — nobody supplied a credential for chat.z.ai or chatglm.cn, so the hub can build the request and validate the model id, but it will not claim a reply it never got. Close it by setting GLM_UPSTREAM; the same code path then forwards for real.
+          - listitem [ref=f1e433]: No real captcha mint observed — minting happens in a partner's browser against Aliyun's widget, so it needs a browser with a screen on the live site. Nothing here can fake it, so the demo path is labelled a demo. Close it by opening the minter tab on a machine that can reach chat.z.ai.
+          - listitem [ref=f1e434]: Nothing spends a token — entries are donated, verified and expired, but the only thing that would spend one is a working upstream, which is the first gap. Close it by closing that one.
+          - listitem [ref=f1e435]: Egress routing — the switch is remembered and does nothing, because routing a request through someone else's connection needs a proxy or Tor client that is not written. Close it by adding a SOCKS5 client and a rotation policy.
+        - text: Everything else on this page — keys, sessions, the page gate, the mint socket, the even spread, expiry and refill, donation verification, the model catalog — is exercised by npm run check against the real hub on every run.
+    - generic [ref=f1e436]:
+      - heading "Test the endpoint" [level=2] [ref=f1e437]
+      - generic [ref=f1e438]: "curl -X POST http://127.0.0.1:5210/v1/chat/completions \\ -H \"Content-Type: application/json\" \\ -H \"Authorization: Bearer <AUTH_TOKEN>\" \\ -d '{\"model\":\"z.ai/glm-5.3-think\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"stream\":false}'"
+      - generic [ref=f1e439]: Address worked out from request Host header. derived from the request, so it is correct wherever the hub is deployed; set GLM_PUBLIC_URL if a reverse proxy hides the real name
+      - generic [ref=f1e440]: "Model ids name the source and the feature: z.ai/glm-5.3, cn/glm-5.3, suffixed -think, -search, -deepresearch. Bare names like glm-4.7 stay as aliases for z.ai. Non-streaming by default; add \"stream\":true for server-sent events."
+    - generic [ref=f1e441]:
+      - heading "Captcha sources" [level=2] [ref=f1e442]
+      - table [ref=f1e444]:
+        - rowgroup [ref=f1e445]:
+          - row [ref=f1e446]:
+            - columnheader "Upstream" [ref=f1e447]
+            - columnheader "Captcha" [ref=f1e448]
+            - columnheader "Evidence" [ref=f1e449]
+            - columnheader "Watch" [ref=f1e450]
+        - rowgroup [ref=f1e451]:
+          - row [ref=f1e452]:
+            - cell "chatglm.cn" [ref=f1e453]
+            - cell "Aliyun" [ref=f1e454]
+            - cell "The recorded minter drives the Aliyun widget for this family; the same vendor and flow appear in all three reference projects." [ref=f1e455]
+            - cell "assume yes" [ref=f1e456]
+          - row [ref=f1e457]:
+            - cell "chat.z.ai" [ref=f1e458]
+            - cell "unconfirmed" [ref=f1e459]
+            - cell "The recorded client mints a guest token over a signed POST with no captcha step in the code path — but absence in what was read is not proof there is none." [ref=f1e460]
+            - cell "watch each run" [ref=f1e461]
+      - generic [ref=f1e462]: "Both sources are wanted. \"Watch\" means: re-check on every run whether the far end presents a challenge, and if one appears, drive it as its own scene rather than assuming the chatglm.cn scene covers it."
+    - generic [ref=f1e463]:
+      - heading "Roles" [level=2] [ref=f1e464]
+      - table [ref=f1e466]:
+        - rowgroup [ref=f1e467]:
+          - row [ref=f1e468]:
+            - columnheader "Role" [ref=f1e469]
+            - columnheader "Mints" [ref=f1e470]
+            - columnheader "Egress" [ref=f1e471]
+            - columnheader "Tokens / sessions" [ref=f1e472]
+            - columnheader "Sees" [ref=f1e473]
+        - rowgroup [ref=f1e474]:
+          - row [ref=f1e475]:
+            - cell "user" [ref=f1e476]
+            - cell "yes" [ref=f1e477]
+            - cell "yes" [ref=f1e478]
+            - cell "no" [ref=f1e479]
+            - cell "own IP" [ref=f1e480]
+          - row [ref=f1e481]:
+            - cell "partner" [ref=f1e482]
+            - cell "yes" [ref=f1e483]
+            - cell "yes" [ref=f1e484]
+            - cell "yes — raises the account-pool allowance" [ref=f1e485]
+            - cell "own contribution" [ref=f1e486]
+          - row [ref=f1e487]:
+            - cell "admin" [ref=f1e488]
+            - cell "yes" [ref=f1e489]
+            - cell "yes" [ref=f1e490]
+            - cell "yes" [ref=f1e491]
+            - cell "everything" [ref=f1e492]
+      - generic [ref=f1e493]:
+        - text: Described on
+        - link "login.html" [ref=f1e494] [cursor=pointer]:
+          - /url: login.html
+        - text: "and in the three role pages. None of it is enforced: there is no server to check a role against."

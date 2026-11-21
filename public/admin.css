@@ -1,0 +1,122 @@
+/* admin.css — control panel for the minter hub.
+   Reuses the minter page's theme tokens (minter.css) but lays out as a
+   responsive card grid, like the reference projects' embedded dashboards. */
+
+.wrap.wide { max-width: 840px; }
+
+.a-head {
+  display: flex; align-items: center; gap: 13px;
+  margin-bottom: 20px; flex-wrap: wrap;
+}
+.a-head .grow { flex: 1 1 240px; }
+.a-head h1 { font-size: 21px; margin: 0; font-weight: 700; }
+.a-head h1 b {
+  background: linear-gradient(90deg, var(--acc), var(--acc2));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.a-head .sub { color: var(--mut); font-size: 12.5px; margin-top: 1px; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; font-weight: 700; padding: 4px 10px;
+  border-radius: 999px; border: 1px solid var(--bd);
+  background: var(--bg); color: var(--mut); white-space: nowrap;
+}
+.pill.ok  { color: var(--ok);  border-color: rgba(63,185,80,.4);  background: rgba(63,185,80,.1); }
+.pill.bad { color: var(--bad); border-color: rgba(248,81,73,.4);  background: rgba(248,81,73,.1); }
+.pill.warn{ color: var(--warn);border-color: rgba(210,153,34,.4); background: rgba(210,153,34,.1); }
+.pill.info{ color: var(--info);border-color: rgba(47,129,247,.4); background: rgba(47,129,247,.1); }
+
+.grid {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  align-items: start;
+}
+.grid .span-all { grid-column: 1 / -1; }
+
+/* key/value rows, as the reference dashboards use */
+.kv { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--bd2); }
+.kv:last-child { border-bottom: none; }
+.kv .k { font-size: 12.5px; color: var(--mut); }
+.kv .v { font-size: 12.5px; color: var(--fg); font-weight: 600; text-align: right; word-break: break-word; }
+.kv .v.mono { font-family: ui-monospace, monospace; font-weight: 500; font-size: 12px; }
+
+/* toggles */
+.tog {
+  font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--bd); background: var(--bg); color: var(--mut);
+  cursor: pointer; user-select: none; transition: opacity .15s;
+}
+.tog:hover { opacity: .8; }
+.tog.on { color: var(--ok); border-color: rgba(63,185,80,.45); background: rgba(63,185,80,.12); }
+.tog.off { color: var(--mut); }
+
+/* tables */
+.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.tbl th, .tbl td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--bd2); vertical-align: top; }
+.tbl th { color: var(--mut); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.tbl td { color: #c9d1d9; }
+.tbl td.mono { font-family: ui-monospace, monospace; font-size: 11.5px; }
+.tbl tr:last-child td { border-bottom: none; }
+
+.scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* endpoint list */
+.ep { padding: 8px 0; border-bottom: 1px solid var(--bd2); }
+.ep:last-child { border-bottom: none; }
+.ep .line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ep .m {
+  font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+  border: 1px solid var(--info); color: #79c0ff; background: rgba(47,129,247,.12);
+}
+.ep .m.get { border-color: rgba(63,185,80,.5); color: #7ee787; background: rgba(63,185,80,.1); }
+.ep .m.post { border-color: rgba(47,129,247,.5); }
+.ep .m.ws  { border-color: rgba(210,153,34,.5); color: var(--warn); background: rgba(210,153,34,.1); }
+.ep .p { font-family: ui-monospace, monospace; font-size: 12.5px; color: var(--fg); }
+.ep .d { font-size: 11.5px; color: var(--mut); margin-top: 2px; }
+
+/* text areas / inputs */
+.ta, .in {
+  width: 100%; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--bd); border-radius: 8px;
+  font-family: ui-monospace, monospace; font-size: 12px;
+  padding: 9px 10px; resize: vertical;
+}
+.ta { min-height: 92px; white-space: pre; }
+.in { font-family: inherit; }
+.ta:focus, .in:focus { outline: none; border-color: var(--acc); }
+.fld { margin-bottom: 10px; }
+.fld label { display: block; font-size: 11.5px; color: var(--mut); margin-bottom: 4px; }
+
+.btn {
+  font: inherit; font-size: 12.5px; font-weight: 600;
+  padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--bd); background: var(--card); color: var(--fg);
+}
+.btn:hover { border-color: var(--mut); }
+.btn.primary { background: linear-gradient(135deg, var(--acc), var(--acc2)); color: #06210f; border-color: transparent; }
+.btn.danger { color: var(--bad); border-color: rgba(248,81,73,.4); background: rgba(248,81,73,.08); }
+.btnrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+.bar-meter { height: 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--bd2); overflow: hidden; }
+.bar-meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--acc), var(--acc2)); }
+.bar-meter.low i { background: linear-gradient(90deg, var(--warn), #e3b341); }
+
+.note { font-size: 11.5px; color: var(--mut); margin-top: 10px; line-height: 1.5; }
+.note b { color: #c9d1d9; }
+
+pre.snip {
+  background: var(--bg); border: 1px solid var(--bd); border-radius: 8px;
+  padding: 12px; font-family: ui-monospace, monospace; font-size: 11.5px;
+  color: #c9d1d9; white-space: pre-wrap; overflow-x: auto; margin: 0;
+}
+
+#alog { font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--mut); max-height: 190px; overflow: auto; }
+#alog div { padding: 2px 0; border-bottom: 1px solid var(--bd2); }
+
+@media (max-width: 560px) {
+  .wrap.wide { padding: 16px 12px 50px; }
+  .a-head h1 { font-size: 19px; }
+  .grid { grid-template-columns: 1fr; }
+}
