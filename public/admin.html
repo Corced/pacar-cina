@@ -133,12 +133,16 @@
       <div class="kv"><span class="k">Last model</span><span class="v mono" id="u-model">—</span></div>
       <div class="kv"><span class="k">Last status</span><span class="v mono" id="u-status">-</span></div>
       <div class="kv"><span class="k">Pool entries spent</span><span class="v" id="u-spent">-</span></div>
+      <div class="kv"><span class="k">Refused (429)</span><span class="v" id="u-throttled">-</span></div>
+      <div class="kv"><span class="k">In flight / limit</span><span class="v mono" id="u-inflight">-</span></div>
       <div class="note" id="u-note">Without <b>GLM_UPSTREAM</b> set, chat answers 501 rather than guessing
       where to send it. With it set, the hub forwards there (the model id still picks the path, so
       <span class="mono">cn/…</span> keeps its own endpoint), signs each request, and attaches one minted
       param from the pool as <b>captcha_verify_param</b>. A 401/403/429 puts the entry back instead of
       burning it; an <span class="mono">x-glm-pool: empty</span> response means the request went out with
-      no param.</div>
+      no param. One caller may hold <b>4</b> requests at once (<b>GLM_CHAT_CONCURRENCY</b>); the next one
+      gets <b>429</b> with a <span class="mono">retry-after</span>, then waits
+      <b>GLM_CHAT_COOLDOWN_MS</b> (5s) before trying again.</div>
     </div>
 
     <!-- ── People: per-person identity ── -->
@@ -323,7 +327,7 @@ socks5://127.0.0.1:1080</textarea>
             <tr>
               <td>Token pool behaviour</td>
               <td><span class="pill ok">has a consumer</span></td>
-              <td>Entries carry an expiry, the sweep moves expired ones out (counted, never dropped silently), and the hub refills towards low-water and target. The chat path now <b>takes an entry and spends it</b>: the oldest minted param is attached to the upstream call as <span style="font-family:monospace">captcha_verify_param</span>, a 401/403/429 returns it unspent, and the response carries <span style="font-family:monospace">x-glm-pool: spent|empty</span>. An empty pool still forwards, labelled, rather than refusing.
+              <td>Entries carry an expiry, the sweep moves expired ones out (counted, never dropped silently), and the hub refills towards low-water and target. The chat path now <b>takes an entry and spends it</b>: the oldest minted param is attached to the upstream call as <span style="font-family:monospace">captcha_verify_param</span>, a 401/403/429 returns it unspent, and the response carries <span style="font-family:monospace">x-glm-pool: spent|empty</span>. An empty pool still forwards, labelled, rather than refusing. One caller holds at most <b>4</b> chat requests at once (<b>GLM_CHAT_CONCURRENCY</b>); the next gets <b>429</b> with <span style="font-family:monospace">retry-after</span> and spends nothing, then waits <b>GLM_CHAT_COOLDOWN_MS</b> (5s) before retrying.
               <br><b>Reference:</b> <a href="repos.html#pingmike2"><b>pingmike2 / zai2api</b></a>'s queue discipline — <span style="font-family:monospace">ORDER BY id LIMIT 1</span>, delete after use, refill below 50 — is the shape this now follows, minus SQLite: the hub's queue is memory.</td>
             </tr>
             <tr>

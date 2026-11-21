@@ -132,7 +132,13 @@ with connected partners keeps filling even with no other traffic.
 POST /v1/chat/completions → readBody → resolveModel(model)
    null            → 400 with the catalog shape and a pointer to GET /v1/models
    no UPSTREAM.url → 501 {type:'not_implemented', resolved_model}
-   else            → dest = GLM_UPSTREAM || SOURCES[source] (path always from
+   else            → slot = takeChatSlot(chatKeyOf(req, session)) — before the
+                     pool is touched, so a refusal spends nothing;
+                     !slot → 429 {type:'rate_limit_error', limit,
+                      retry_after_seconds} + retry-after, and that caller is
+                      held for GLM_CHAT_COOLDOWN_MS (a retry inside it is 429
+                      too); the slot is released in a finally on every path;
+                     dest = GLM_UPSTREAM || SOURCES[source] (path always from
                      the source, so cn/ keeps /api/v1);
                      spent = consumeToken() — oldest first;
                      body: model=plain base, chat_id, messages, signature_prompt
@@ -183,7 +189,7 @@ Route table. "session" = any signed-in role; "adminish" = `admin` or `superadmin
 | POST | `/features` | admin | default flags for every chat request; a suffix overrides per call |
 | POST | `/admin/session/clear` | adminish | `admin.js` drop button; closes every partner socket |
 | GET | `/v1/models` | open | external OpenAI-shaped clients |
-| POST | `/v1/chat/completions` | open | external clients (501 without `GLM_UPSTREAM`; forwards, signs and spends a pool entry with it) |
+| POST | `/v1/chat/completions` | open | external clients (501 without `GLM_UPSTREAM`; forwards, signs and spends a pool entry with it; 429 past `GLM_CHAT_CONCURRENCY` for one caller) |
 | GET | `/…` (static) | session for `.html`; assets + `login.html` public | every page |
 
 Outbound calls: `CONFIG.captcha.verifyUrl` (Aliyun verify), and the chat forward
@@ -193,5 +199,5 @@ the path always taken from the source so `cn/` keeps `/api/v1`.
 
 Files: `hub.mjs` (all of the above), `ws.mjs` (`acceptKey`, `encodeFrame`,
 `decodeFrames`, `attachSocket`, `OP`, `newId`). Proving suites: `check-chat.mjs`
-(local upstream stub, 27 assertions) for forwarding and the pool, and
+(local upstream stub, 38 assertions) for forwarding and the pool, and
 `check-people.mjs` (56 assertions, four hub restarts) for the directory.

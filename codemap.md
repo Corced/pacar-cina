@@ -49,7 +49,7 @@ in memory on purpose. `HANDOFF.md` is the authoritative honest-status document;
 | `dist/` | build output — generated, never edit |
 | `.repos/` | downloaded reference-project archives (research material, never published) |
 | `check-*.mjs` | the suites `npm run check` runs |
-| `check-chat.mjs` | chat forwarding against a local upstream stub: signing, pool spend, refund |
+| `check-chat.mjs` | chat forwarding against a local upstream stub: signing, pool spend, refund, the per-caller 429 |
 | `check-people.mjs` | the people directory: create, revoke (key + sessions + sockets), rotate, the state file, hashing at rest, the seeded superadmin across a restart |
 | `fetch-repos.mjs` | downloads the three reference projects into `.repos/` |
 | `.slim/codemap.json` | codemap change-detection state |
@@ -85,7 +85,7 @@ Three flows carry the system, each written out as an arrow trace in
 | Change a page's behaviour | `public/codemap.md` for the page→script→route table |
 | Change the mint protocol | `server/hub.mjs` `onMinterSocket` **and** `public/minter.js` — the two must move together |
 | Change the captcha widget config | `GET /config` in the hub *and* `glm-client.js loadConfig()` |
-| Verify anything | `npm run check` (eight scripts, 249 counted assertions) - see `HANDOFF.md` "Verifying" |
+| Verify anything | `npm run check` (eight scripts, 260 counted assertions) - see `HANDOFF.md` "Verifying" |
 
 ## Traps (from `HANDOFF.md`, still true)
 

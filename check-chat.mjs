@@ -10,6 +10,7 @@
  *   - the x-signature is a real HMAC over the prompt, not a placeholder
  *   - a 401/403/429 returns the entry unspent instead of burning it
  *   - an empty pool still forwards, labelled, rather than refusing
+ *   - one caller holds four chat requests, the fifth is 429 + retry-after
  *
  * Starts its own stub + hub on spare ports; nothing outside is touched.
  */
@@ -34,13 +35,15 @@ function check(name, ok, extra = '') {
 /* ── the stub upstream: records what it was sent, answers what it is told ── */
 const seen = [];
 let stubStatus = 200;
+let stubDelayMs = 0;          // hold responses open, to make requests overlap
 const stub = createServer((req, res) => {
   let raw = '';
   req.on('data', (d) => { raw += d.toString(); });
-  req.on('end', () => {
+  req.on('end', async () => {
     let body = null;
     try { body = JSON.parse(raw); } catch { /* keep raw */ }
     seen.push({ path: req.url, headers: req.headers, body });
+    if (stubDelayMs) await sleep(stubDelayMs);
     if (stubStatus === 200) {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'pong' } }] }));
@@ -61,9 +64,11 @@ const hub = spawn(process.execPath, [join(ROOT, 'server', 'hub.mjs')], {
     TOKEN_TARGET: '4',
     TOKEN_LOWWATER: '4',
     GLM_KEYS: 'partner:test-partner-key,admin:test-admin-key',
+    GLM_PEOPLE: 'alice=partner:alice-key',
     GLM_UPSTREAM: 'http://127.0.0.1:' + STUB_PORT,
     GLM_UPSTREAM_KEY: 'test-upstream-key',
     GLM_UPSTREAM_TIMEOUT: '4000',
+    GLM_CHAT_COOLDOWN_MS: '1200',     // the default 5s would make this check slow
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -71,11 +76,13 @@ let hubOut = '';
 hub.stdout.on('data', (d) => { hubOut += d.toString(); });
 hub.stderr.on('data', (d) => { hubOut += d.toString(); });
 
-async function signIn(role, key) {
+async function signIn(role, key, name) {
+  const payload = { role, key };
+  if (name) payload.name = name;
   const r = await fetch(BASE + '/session', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ role, key }),
+    body: JSON.stringify(payload),
   });
   return (r.headers.get('set-cookie') || '').split(';')[0];
 }
@@ -84,10 +91,10 @@ async function status(cookie) {
   return (await fetch(BASE + '/status', { headers: { cookie } })).json();
 }
 
-async function chat(model) {
+async function chat(model, cookie) {
   const r = await fetch(BASE + '/v1/chat/completions', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: Object.assign({ 'content-type': 'application/json' }, cookie ? { cookie } : {}),
     body: JSON.stringify({ model, messages: [{ role: 'user', content: 'hello there' }] }),
   });
   const text = await r.text();
@@ -108,6 +115,7 @@ try {
   /* ── fill the pool with real mints ── */
   const partnerCookie = await signIn('partner', 'test-partner-key');
   const adminCookie = await signIn('admin', 'test-admin-key');
+  const aliceCookie = await signIn('partner', 'alice-key', 'alice');
   const ws = new WebSocket('ws://127.0.0.1:' + PORT + '/minter/ws', { headers: { cookie: partnerCookie } });
   socks.push(ws);
   await new Promise((res, rej) => {
@@ -247,7 +255,62 @@ try {
     seen[0] && seen[0].body.features && seen[0].body.features.enable_thinking === false,
     JSON.stringify(seen[0] && seen[0].body.features));
 
-  /* ── 4. an empty pool still forwards, and says so ── */
+  /* ── 4. one caller holds four requests, then waits ──
+   * The pool is the scarce resource: four open requests are a quarter of what
+   * this hub will do for one caller. The fifth is refused with a retry-after,
+   * and a retry inside that wait is refused too, so a client that ignores the
+   * 429 cannot spin. A refused request must not have spent a pool entry. */
+  stubDelayMs = 900;
+  const preLimit = await status(adminCookie);
+  check('the limit is reported, with the default concurrency',
+    preLimit.chatLimit && preLimit.chatLimit.concurrency === 4
+    && preLimit.chatLimit.cooldownMs === 1200,
+    JSON.stringify(preLimit.chatLimit));
+
+  const four = [0, 1, 2, 3].map(() => chat('z.ai/glm-5.3'));
+  await sleep(250);                      // all four admitted, none answered yet
+  const five = await chat('z.ai/glm-5.3');
+  check('a fifth concurrent request is refused with 429', five.status === 429, 'HTTP ' + five.status);
+  check('the refusal says what the limit is and how long to wait',
+    five.body && five.body.error && five.body.error.type === 'rate_limit_error'
+    && five.body.error.limit === 4 && five.body.error.retry_after_seconds >= 1,
+    JSON.stringify(five.body));
+  const six = await chat('z.ai/glm-5.3');
+  check('a retry inside the wait period is refused too', six.status === 429, 'HTTP ' + six.status);
+
+  const answered = await Promise.all(four);
+  check('the four admitted requests all get through',
+    answered.every((r) => r.status === 200), answered.map((r) => r.status).join(','));
+
+  // Slots are free again, but the wait is not over. This is what proves the
+  // retry-after is a real wait and not just "the four slots are full".
+  const seven = await chat('z.ai/glm-5.3');
+  check('a retry with slots free is still refused while the wait runs',
+    seven.status === 429, 'HTTP ' + seven.status);
+
+  const afterLimit = await status(adminCookie);
+  check('a refused request spends no pool entry',
+    afterLimit.chat.poolSpent - preLimit.chat.poolSpent === 4,
+    'poolSpent ' + preLimit.chat.poolSpent + ' -> ' + afterLimit.chat.poolSpent);
+  check('refusals are counted separately from failures',
+    afterLimit.chat.throttled - preLimit.chat.throttled === 3,
+    'throttled ' + preLimit.chat.throttled + ' -> ' + afterLimit.chat.throttled);
+  check('the slots are handed back when the requests finish',
+    afterLimit.chatLimit.inFlight === 0, 'inFlight=' + afterLimit.chatLimit.inFlight);
+
+  stubDelayMs = 0;
+  // The budget is per caller, not global: a named person is not held hostage by
+  // this anonymous caller's cooldown.
+  const alice = await chat('z.ai/glm-5.3', aliceCookie);
+  check('a named person has their own budget while another caller waits',
+    alice.status === 200, 'HTTP ' + alice.status);
+
+  await sleep(700);                      // past the 1200ms cooldown
+  const eight = await chat('z.ai/glm-5.3');
+  check('the same caller may try again once the wait is over',
+    eight.status === 200, 'HTTP ' + eight.status);
+
+  /* ── 5. an empty pool still forwards, and says so ── */
   // Take the partner offline first, or the refill loop refills faster than the
   // pool can be drained and "empty" is never reached.
   ws.close();
@@ -274,6 +337,6 @@ try {
   stub.close();
 }
 
-console.log(failures === 0 ? '\nchat check: the pool is spent, signed, and refunded on refusal'
+console.log(failures === 0 ? '\nchat check: the pool is spent, signed, refunded on refusal, and limited per caller'
   : '\nchat check: ' + failures + ' problem(s)');
 process.exit(failures === 0 ? 0 : 1);

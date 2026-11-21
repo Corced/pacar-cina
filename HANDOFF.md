@@ -123,8 +123,8 @@ process; past that the oldest is dropped. A check fills it to prove the cap.
 
 ## What actually works
 
-Each line was proven by a check in `npm run check` (249 assertions: 60 hub,
-97 config, 9 multi-partner, 27 chat, 56 people). "Proven" means an assertion
+Each line was proven by a check in `npm run check` (260 assertions: 60 hub,
+97 config, 9 multi-partner, 38 chat, 56 people). "Proven" means an assertion
 fails if it stops being true.
 
 **The spread - the core claim.** Three partners with different egress addresses
@@ -184,6 +184,19 @@ drifted above reality for good. An empty pool still forwards but labels the
 response `x-glm-pool: empty`, and `/status` counts `pool.consumed` and
 `chat.poolSpent` as the entry goes.
 
+**One caller, four requests, then a wait.** `GLM_CHAT_CONCURRENCY` (default 4)
+caps chat requests in flight per identity — a named person, else the role, else
+the client IP when nobody is signed in — and the request past the cap gets **429**
+with `retry-after` plus `{type:"rate_limit_error", limit, retry_after_seconds}`.
+The refusal happens before `consumeToken()`, so it spends no pool entry. That
+caller then waits `GLM_CHAT_COOLDOWN_MS` (default 5000) before it may try again,
+and a retry inside the wait is refused too — a client that ignores the 429
+cannot spin. Slots are released in a `finally`, so an upstream error or a
+timeout gives the slot back rather than locking the caller out. `/status`
+reports `chatLimit` (the two numbers, `inFlight`, `callers`) and
+`chat.throttled`. This is per caller, not a global limiter: two people behind one
+NAT share an IP budget, and a second identity is a second budget.
+
 **Identity is revocable at runtime.** A superadmin creates a person
 (`POST /people`) and sees the key once. An admin revokes or rotates
 (`POST /people/revoke`, `POST /people/rotate`): the key stops working on the
@@ -232,7 +245,7 @@ The whole path is proven against a local stub instead of an unreachable host:
 still picks the path, so `cn/…` keeps its own endpoint), the key rides as a
 bearer credential, `x-signature` is a real HMAC over the flattened prompt, and
 the suffix features arrive in the reference projects' `features` shape
-(`check-chat.mjs`, 27 assertions). But it has **never made a successful call to
+(`check-chat.mjs`, 38 assertions). But it has **never made a successful call to
 chat.z.ai or chatglm.cn**, because no credential was ever supplied.
 
 _Close it by:_ setting `GLM_UPSTREAM` and `GLM_UPSTREAM_KEY` to a real account,
@@ -519,7 +532,7 @@ Eight scripts, all must exit 0:
 | `check-hub.mjs`       | 60                   | routes, auth, donations, verification, nav, gate                                                       |
 | `check-hub-multi.mjs` | 9                    | the even spread across three partners                                                                  |
 | `check-config.mjs`    | 97                   | env-driven config, deployment addressing, role separation, server-side session expiry                  |
-| `check-chat.mjs`      | 27                   | forwarding, request signing, pool spend and refund, feature defaults, empty-pool labelling             |
+| `check-chat.mjs`      | 38                   | forwarding, request signing, pool spend and refund, feature defaults, empty-pool labelling, the per-caller 429 |
 | `check-people.mjs`    | 56                   | create / revoke / rotate, live sessions and sockets dropped, the state file, hashing at rest, the seeded superadmin across a restart, a v1 file upgraded |
 | `check-docs.mjs`      | 18                   | this note and the README against the tree: settings, paths, stale claims, the gap-list floor           |
 

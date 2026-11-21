@@ -156,7 +156,9 @@ That is the design, not a misconfiguration.
     machine it needs TLS in front of the hub, or the key is readable in transit.
 12. **The default bind is loopback** (`HOST=127.0.0.1`). To serve another
     machine, set `HOST=0.0.0.0` *and* put a real proxy in front of it — this hub
-    speaks plain HTTP and has no rate limiting of its own.
+    speaks plain HTTP, and the only limiting it does is the per-caller chat cap
+    (`GLM_CHAT_CONCURRENCY`, 4 at once). There is no global rate limit, no
+    connection cap and no TLS; the proxy supplies those.
 13. **Check before you trust a doc edit.** `check-docs.mjs` parses `HANDOFF.md`
     and `README.md`: every setting name must exist in `server/hub.mjs`, every
     `public/` or `server/` path must exist on disk, and the numbered-gap list

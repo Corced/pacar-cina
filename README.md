@@ -210,7 +210,7 @@ socket, which is why the pages need no configuration.
 | `POST /features`            | admin session                    | default feature flags applied to **every** chat request; a model suffix turns one on for a single call. `persist_history` is deliberately absent - the hub keeps no conversation store, so a switch for it could never do anything |
 | `POST /admin/session/clear` | admin session                    | close every connected partner socket (this is a disconnect, not a logout)                                                                                                                                                          |
 | `GET /v1/models`            | open                             | the model list                                                                                                                                                                                                                     |
-| `POST /v1/chat/completions` | open                             | forwards when `GLM_UPSTREAM` is set, otherwise **501** with the reason                                                                                                                                                             |
+| `POST /v1/chat/completions` | open                             | forwards when `GLM_UPSTREAM` is set, otherwise **501** with the reason; **429** + `retry-after` past `GLM_CHAT_CONCURRENCY` for one caller                                    |
 | `GET /…`                    | **session** for `.html`          | serves `public/`; signed out, pages redirect to `login.html?next=…`, while CSS/JS/icons stay public. Path traversal is refused with 403                                                                                            |
 
 ### Environment variables
@@ -243,6 +243,8 @@ original capture used**, so a plain checkout behaves as recorded.
 | `GLM_UPSTREAM`                    | — (chat 501s)                                     | where `/v1/chat/completions` forwards; the source in the model id still picks the path, so `cn/…` keeps `/api/v1` whatever the origin                                                                                                                          |
 | `GLM_UPSTREAM_KEY`                | — (no header)                                     | optional bearer credential for the upstream                                                                                                                                                                                                                    |
 | `GLM_UPSTREAM_TIMEOUT`            | `30000`                                           | upstream call deadline in ms                                                                                                                                                                                                                                   |
+| `GLM_CHAT_CONCURRENCY`            | `4`                                               | how many `/v1/chat/completions` one caller may hold at once; the next one gets **429**                                                                                                                                                                         |
+| `GLM_CHAT_COOLDOWN_MS`            | `5000`                                            | how long a caller waits after being refused, in ms; `0` turns the wait off and leaves only the concurrency cap                                                                                                                                                 |
 | `GLM_SIGN_SALT`                   | the reference projects' salt                      | the HMAC salt for the upstream `x-signature`; override it only for a different origin                                                                                                                                                                          |
 | `SESSION_SECRET`                  | ephemeral                                         | HMAC key for session cookies; unset = new every restart, so all sessions die                                                                                                                                                                                   |
 | `TOKEN_TARGET`                    | `750`                                             | pool stops asking for mints at this count (in-flight jobs count against it)                                                                                                                                                                                    |
@@ -303,7 +305,7 @@ node check-links.mjs         # every local href/src resolves inside dist/
 node check-hub.mjs           # 60 expectations: auth gates, session, socket, /status, models, upstream, donations
 node check-hub-multi.mjs     # 9 expectations: 3 partners, even spread, pool stops at target
 node check-config.mjs        # 97 expectations: dynamic config, the page gate, per-role pages, the pool life cycle, session expiry
-node check-chat.mjs          # 27 expectations: forwarding, request signing, pool spend and refund, feature defaults
+node check-chat.mjs          # 38 expectations: forwarding, request signing, pool spend and refund, feature defaults, the per-caller 429
 node check-people.mjs        # 56 expectations: create, revoke, rotate, the state file, hashing at rest, the seeded superadmin across a restart
 node check-docs.mjs          # the hand-off note still matches the code: every setting and path it names exists
 node check-serve.mjs <url>   # every page and asset is actually served
@@ -429,6 +431,16 @@ pass looks like, and where to record the result.
   `/v1/chat/…` answers 501 rather than faking success. `check-chat.mjs` proves the
   whole call against a local stub; no call to the live service has succeeded,
   because no credential was ever supplied.
+- **One caller holds at most four chat requests.** `GLM_CHAT_CONCURRENCY`
+  (default 4) counts requests in flight per identity — a named person, else the
+  role, else the client IP when nobody is signed in — and the next one gets
+  **429** with `retry-after` and `{type:"rate_limit_error", limit, retry_after_seconds}`.
+  A refusal spends no pool entry, and the caller then waits
+  `GLM_CHAT_COOLDOWN_MS` (default 5000) before trying again; a retry inside that
+  wait is refused too, so a client that ignores the 429 cannot spin. Slots come
+  back on success, on an upstream error and on a timeout. This is a per-caller
+  guard, not a global rate limiter: two anonymous callers behind one NAT share
+  one budget, and nothing stops a caller from simply opening a second identity.
 - **Only the directory is persisted.** The pool, sessions and donations live in
   memory, so a restart empties the pool and invalidates every session. That is
   deliberate: pool entries are captcha params that expire in half an hour.

@@ -210,6 +210,16 @@ const UPSTREAM = {
   timeoutMs: Number(process.env.GLM_UPSTREAM_TIMEOUT || 30000),
 };
 
+/* Per-caller limit on chat: at most CHAT_CONCURRENCY requests in flight for one
+ * identity, and after a refusal that identity waits CHAT_COOLDOWN_MS before it
+ * may try again. One counter per person (or per role, or per IP when nobody is
+ * signed in) in memory — the pool entries are the scarce resource, and a caller
+ * with four open requests is already holding a quarter of the upstream's
+ * attention. A cooldown exists so a client that ignores the 429 cannot simply
+ * spin; it does not extend on repeat refusals. */
+const CHAT_CONCURRENCY = Math.max(1, Number(process.env.GLM_CHAT_CONCURRENCY || 4) || 4);
+const CHAT_COOLDOWN_MS = Math.max(0, Number(process.env.GLM_CHAT_COOLDOWN_MS || 5000) || 0);
+
 /* Request signing for the z.ai wire format, as ported in both Go reference
  * projects (see repos.html): an HMAC-SHA256 over a sorted
  * `requestId,timestamp,user_id` string plus the base64 prompt, keyed by a
@@ -337,7 +347,7 @@ const state = {
   donated: [],                  // partner-donated tokens/sessions, with verification status
   donatedSeq: 0,
   people: new Map(),            // person name -> {name, role, key, at, uses}
-  chat: { requests: 0, ok: 0, failed: 0, poolSpent: 0, lastModel: null, lastStatus: null, lastAt: null },
+  chat: { requests: 0, ok: 0, failed: 0, throttled: 0, poolSpent: 0, lastModel: null, lastStatus: null, lastAt: null },
   captchaChecks: [],          // every Aliyun exchange attempted, with its outcome
   features: {
     // Defaults applied to every chat request; a model suffix can turn one on
@@ -353,6 +363,7 @@ const state = {
   sessions: new Map(),          // sid -> {role, created, lastSeen}
   expiredSessions: 0,           // sign-ins that aged out, counted not dropped
   jobs: new Map(),              // jobId -> {id, partnerId, sentAt, timer}
+  usage: new Map(),             // chatKey -> {active, until}: the per-caller limit
 };
 
 /* ── sessions ────────────────────────────────────────────────────────────── */
@@ -966,6 +977,14 @@ function statusPayload(req) {
         : 'set GLM_UPSTREAM to forward /v1/chat/completions; without it chat answers 501',
     },
     chat: state.chat,
+    chatLimit: {
+      concurrency: CHAT_CONCURRENCY,
+      cooldownMs: CHAT_COOLDOWN_MS,
+      inFlight: chatInFlight(),
+      callers: state.usage.size,
+      per: 'a person by name; a signed-in role; otherwise the client IP',
+      note: 'a refused caller gets 429 with retry-after, then waits the cooldown before trying again',
+    },
     captcha: {
       api: CAPTCHA_API,
       checked: state.captchaChecks.length,
@@ -1019,6 +1038,52 @@ function statusPayload(req) {
   };
 }
 
+/* ── the per-caller chat limit ───────────────────────────────────────────── */
+
+/* Who the limit applies to. A named person has their own budget; a signed-in
+ * role that is not a person shares one; anyone without a session is counted by
+ * IP, which is the only identity an anonymous caller has (so two people behind
+ * one NAT share a budget — the honest ceiling of IP counting). A forwarded
+ * address is believed only when GLM_TRUST_PROXY says a proxy rewrote it. */
+function chatKeyOf(req, session) {
+  if (session && session.name) return 'person:' + session.name;
+  if (session) return 'role:' + session.role;
+  const fwd = TRUST_PROXY ? (req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
+  const ip = fwd || (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  return 'ip:' + ip;
+}
+
+function takeChatSlot(key) {
+  const now = Date.now();
+  let u = state.usage.get(key);
+  if (!u) { u = { active: 0, until: 0 }; state.usage.set(key, u); }
+  if (u.until > now) {
+    return { ok: false, why: 'cooling', retryAfter: Math.ceil((u.until - now) / 1000) };
+  }
+  if (u.active >= CHAT_CONCURRENCY) {
+    // Start the wait now; a repeat refusal does not extend it, or a client that
+    // ignores the 429 could keep itself locked out forever.
+    u.until = now + CHAT_COOLDOWN_MS;
+    return { ok: false, why: 'busy', retryAfter: Math.ceil(CHAT_COOLDOWN_MS / 1000) };
+  }
+  u.active++;
+  return { ok: true };
+}
+
+function releaseChatSlot(key) {
+  const u = state.usage.get(key);
+  if (!u) return;
+  u.active = Math.max(0, u.active - 1);
+  // Idle and past its cooldown: forget it, so the map holds only live callers.
+  if (u.active === 0 && u.until <= Date.now()) state.usage.delete(key);
+}
+
+function chatInFlight() {
+  let n = 0;
+  for (const u of state.usage.values()) n += u.active;
+  return n;
+}
+
 /* ── the token pool: consume, expire, refill ─────────────────────────────── */
 
 /* Move entries past their expiry out of `available`. Counted, never dropped
@@ -1068,6 +1133,12 @@ function refillPool() {
 const sweeper = setInterval(() => {
   sweepPool(Date.now());
   sweepSessions(Date.now());
+  // Idle callers whose cooldown has passed hold no information: drop them, or
+  // the map keeps one row per IP that ever got a 429.
+  const now = Date.now();
+  for (const [key, u] of state.usage) {
+    if (u.active === 0 && u.until <= now) state.usage.delete(key);
+  }
   refillPool();
 }, SWEEP_MS);
 
@@ -1879,6 +1950,27 @@ const server = createServer(async (req, res) => {
       ? { origin: UPSTREAM.url.replace(/\/+$/, ''), path: origin.path, region: origin.region }
       : origin;
 
+    // Limit before spending: a refused request must not burn a pool entry, and
+    // the slot is taken before the upstream call rather than after it.
+    const who = chatKeyOf(req, session);
+    const slot = takeChatSlot(who);
+    if (!slot.ok) {
+      state.chat.throttled++;
+      const secs = String(Math.max(1, slot.retryAfter));
+      res.setHeader('retry-after', secs);
+      return json(res, 429, {
+        error: {
+          message: (slot.why === 'busy'
+            ? 'too many requests in flight: one caller may hold ' + CHAT_CONCURRENCY + ' at once'
+            : 'still cooling down after the limit was hit')
+            + '; try again in ' + secs + 's',
+          type: 'rate_limit_error',
+          limit: CHAT_CONCURRENCY,
+          retry_after_seconds: Number(secs),
+        },
+      });
+    }
+
     // Spend the pool: take the oldest minted param and attach it as the
     // captcha_verify_param the upstream requires. This is the whole reason the
     // minter page exists — a pool nothing spends is a counter, not a resource.
@@ -1984,6 +2076,11 @@ const server = createServer(async (req, res) => {
           resolved_model: entry.id,
         },
       });
+    } finally {
+      // Every admitted request gives its slot back, on success, on refusal from
+      // upstream, and on a throw — otherwise four failures would lock a caller
+      // out until the process restarted.
+      releaseChatSlot(who);
     }
   }
 
@@ -2094,6 +2191,8 @@ server.listen(PORT, HOST, () => {
   } else {
     log('  no upstream: /v1/chat/completions answers 501 (set GLM_UPSTREAM to forward)');
   }
+  log('  chat limit: ' + CHAT_CONCURRENCY + ' in flight per caller, then a '
+    + Math.round(CHAT_COOLDOWN_MS / 1000) + 's wait (429 + retry-after)');
   if (String(process.env.GLM_WS_AUTH || 'required').toLowerCase() === 'open') {
     log('  WARNING: GLM_WS_AUTH=open — anonymous sockets may receive mint work');
   }

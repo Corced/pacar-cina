@@ -194,6 +194,10 @@
       setText('u-model', d.chat.lastModel || '—');
       setText('u-status', d.chat.lastStatus == null ? '-' : d.chat.lastStatus);
       setText('u-spent', d.chat.poolSpent == null ? '-' : d.chat.poolSpent);
+      setText('u-throttled', d.chat.throttled == null ? '-' : d.chat.throttled);
+    }
+    if (d.chatLimit) {
+      setText('u-inflight', d.chatLimit.inFlight + ' / ' + d.chatLimit.concurrency);
     }
 
     // Captcha verification counters.
