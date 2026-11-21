@@ -8,7 +8,8 @@
   "scripts": {
     "build": "node build.mjs",
     "hub": "node server/hub.mjs",
-    "check": "node check-html.mjs && node check-links.mjs && node check-hub.mjs && node check-hub-multi.mjs && node check-config.mjs && node check-chat.mjs && node check-people.mjs && node check-docs.mjs",
+    "doctor": "node doctor.mjs",
+    "check": "node check-html.mjs && node check-links.mjs && node check-hub.mjs && node check-hub-multi.mjs && node check-config.mjs && node check-chat.mjs && node check-people.mjs && node check-docs.mjs && node doctor.mjs --self-test",
     "check:hub": "node check-hub.mjs",
     "check:multi": "node check-hub-multi.mjs",
     "check:config": "node check-config.mjs",

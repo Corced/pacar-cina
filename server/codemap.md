@@ -160,12 +160,15 @@ POST /v1/chat/completions → readBody → resolveModel(model)
 and treats bare bases (`glm-4.7`) as aliases for their z.ai id.
 
 **Donation.** `POST /tokens {kind, value}` → partner/admin gate → SHA-256
-fingerprint (16 chars) → duplicate short-circuit → push `{kind, fp, person,
-role, status:'verifying'}` → `verifyDonation` runs *off* the request path and
-settles the status from the real Aliyun answer; the raw value is never stored on
-the donation, so a later `POST /captcha/verify {fp, value}` must re-supply it.
-The ledger holds at most 200 entries (`/tokens?all=1` serialises all of it, so it
-must not grow for the life of the process); the oldest is dropped past that.
+fingerprint (16 chars) → duplicate short-circuit → `donateLimit` check
+(`GLM_DONATE_CONCURRENCY` per caller, 429 + `retry-after`, nothing recorded) →
+push `{kind, fp, person, role, status:'verifying'}` → `verifyDonation` runs *off*
+the request path and settles the status from the real Aliyun answer; the raw
+value is never stored on the donation, so a later `POST /captcha/verify {fp,
+value}` must re-supply it. The slot is held for the exchange and released in a
+`finally`, so `/status.donationLimit.verifying` falls back to 0. The ledger holds
+at most 200 entries (`/tokens?all=1` serialises all of it, so it must not grow
+for the life of the process); the oldest is dropped past that.
 
 ## Integration
 
@@ -179,7 +182,7 @@ Route table. "session" = any signed-in role; "adminish" = `admin` or `superadmin
 | GET | `/config` | open | `glm-client.js`, `roles.js` (IP lookup URL) |
 | GET | `/status` | adminish | `admin.js` (5 s poll) |
 | GET | `/status/self` | session | minter's no-hub probe / partner pages |
-| POST | `/tokens` | partner, adminish | `roles.js` (`mountPartner`) |
+| POST | `/tokens` | partner, adminish | `roles.js` (`mountPartner`); 429 past `GLM_DONATE_CONCURRENCY` per caller |
 | GET | `/tokens[?mine=1\|?all=1]` | partner; `?all=1` adminish | `roles.js`, `admin.js` |
 | POST | `/captcha/verify` | adminish | `admin.js` |
 | GET | `/people` | adminish | `admin.js` (People card) |
@@ -199,5 +202,7 @@ the path always taken from the source so `cn/` keeps `/api/v1`.
 
 Files: `hub.mjs` (all of the above), `ws.mjs` (`acceptKey`, `encodeFrame`,
 `decodeFrames`, `attachSocket`, `OP`, `newId`). Proving suites: `check-chat.mjs`
-(local upstream stub, 38 assertions) for forwarding and the pool, and
+(local upstream stub, 38 assertions) for forwarding and the pool,
+`check-hub.mjs` (66 assertions, including a stub Aliyun endpoint) for the routes,
+the donation cap and the sockets, and
 `check-people.mjs` (56 assertions, four hub restarts) for the directory.

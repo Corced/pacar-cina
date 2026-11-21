@@ -38,7 +38,9 @@
     <p class="note">The counts come from the hub's <span class="mono">/tokens</span> endpoint and cover
     every partner, not just you. A donation's status is <b>unverified</b> until an admin proves it against
     Aliyun's captcha API (then valid or invalid). "Pool allowance" is still 0: how many accounts a donated
-    value unlocks is a hub policy that has not been decided.</p>
+    value unlocks is a hub policy that has not been decided. Pasting a hundred sessions adds no chat
+    capacity — each one is verified and recorded, never replayed upstream — and the hub checks four at a
+    time, so a fifth paste in a row is refused with a short wait rather than queued.</p>
   </div>
 
   <div class="card">

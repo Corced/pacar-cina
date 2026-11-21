@@ -220,6 +220,15 @@ const UPSTREAM = {
 const CHAT_CONCURRENCY = Math.max(1, Number(process.env.GLM_CHAT_CONCURRENCY || 4) || 4);
 const CHAT_COOLDOWN_MS = Math.max(0, Number(process.env.GLM_CHAT_COOLDOWN_MS || 5000) || 0);
 
+/* A donation is verified by an outbound call to Aliyun, so a partner pasting a
+ * hundred values turns into a hundred exchanges in flight. Cap how many one
+ * caller may have verifying at once; the refusal records nothing and spends
+ * nothing. Values that are not captcha-shaped never reach the network, so this
+ * only ever bites a caller who is sending something that looks like a real
+ * param — the exact case worth bounding. */
+const DONATE_CONCURRENCY = Math.max(1, Number(process.env.GLM_DONATE_CONCURRENCY || 4) || 4);
+const DONATE_RETRY_AFTER_S = 2;
+
 /* Request signing for the z.ai wire format, as ported in both Go reference
  * projects (see repos.html): an HMAC-SHA256 over a sorted
  * `requestId,timestamp,user_id` string plus the base64 prompt, keyed by a
@@ -346,6 +355,8 @@ const state = {
   tokens: [],                   // pool entries: {id, at, expiresAt, partnerId, size}
   donated: [],                  // partner-donated tokens/sessions, with verification status
   donatedSeq: 0,
+  donateThrottled: 0,           // donations refused because that caller was already verifying
+  verifying: new Map(),         // chatKey -> count of Aliyun exchanges in flight
   people: new Map(),            // person name -> {name, role, key, at, uses}
   chat: { requests: 0, ok: 0, failed: 0, throttled: 0, poolSpent: 0, lastModel: null, lastStatus: null, lastAt: null },
   captchaChecks: [],          // every Aliyun exchange attempted, with its outcome
@@ -984,6 +995,13 @@ function statusPayload(req) {
       callers: state.usage.size,
       per: 'a person by name; a signed-in role; otherwise the client IP',
       note: 'a refused caller gets 429 with retry-after, then waits the cooldown before trying again',
+    },
+    donationLimit: {
+      concurrency: DONATE_CONCURRENCY,
+      verifying: [...state.verifying.values()].reduce((a, b) => a + b, 0),
+      callers: state.verifying.size,
+      throttled: state.donateThrottled,
+      note: 'each captcha-shaped donation is one outbound Aliyun exchange; a caller past this many gets 429 and records nothing',
     },
     captcha: {
       api: CAPTCHA_API,
@@ -1637,6 +1655,28 @@ const server = createServer(async (req, res) => {
     if (existing) {
       return json(res, 200, { ok: true, duplicate: true, fp, donated: state.donated.length, status: existing.status });
     }
+
+    // Checked after dedupe: a repeat costs a scan and never reaches Aliyun, so
+    // it must not be counted against the limit. Everything past this point does
+    // cost one outbound exchange.
+    const who = chatKeyOf(req, session);
+    const verifying = state.verifying.get(who) || 0;
+    if (verifying >= DONATE_CONCURRENCY) {
+      state.donateThrottled++;
+      const secs = String(DONATE_RETRY_AFTER_S);
+      res.setHeader('retry-after', secs);
+      return json(res, 429, {
+        error: {
+          message: 'already verifying ' + verifying + ' of this caller\'s donation(s): '
+            + DONATE_CONCURRENCY + ' at a time is the limit; try again in ' + secs + 's',
+          type: 'rate_limit_error',
+          limit: DONATE_CONCURRENCY,
+          retry_after_seconds: Number(secs),
+        },
+      });
+    }
+    state.verifying.set(who, verifying + 1);
+
     const donation = {
       kind,
       fp,
@@ -1662,6 +1702,12 @@ const server = createServer(async (req, res) => {
       donation.status = 'unverified';
       donation.detail = 'auto-verification failed unexpectedly';
       donation.checkedAt = Date.now();
+    }).finally(() => {
+      // The slot is held for the exchange, not for the request: the response
+      // went out before this promise settled.
+      const left = (state.verifying.get(who) || 1) - 1;
+      if (left <= 0) state.verifying.delete(who);
+      else state.verifying.set(who, left);
     });
 
     log('donation recorded: ' + kind + ' fp=' + fp
@@ -2193,6 +2239,7 @@ server.listen(PORT, HOST, () => {
   }
   log('  chat limit: ' + CHAT_CONCURRENCY + ' in flight per caller, then a '
     + Math.round(CHAT_COOLDOWN_MS / 1000) + 's wait (429 + retry-after)');
+  log('  donation limit: ' + DONATE_CONCURRENCY + ' Aliyun exchange(s) in flight per caller');
   if (String(process.env.GLM_WS_AUTH || 'required').toLowerCase() === 'open') {
     log('  WARNING: GLM_WS_AUTH=open — anonymous sockets may receive mint work');
   }

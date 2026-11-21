@@ -27,7 +27,7 @@ different states:
 
 | What is donated                                                                                            | State                                                                                                                                                                                                                                                                           | Proven by                                                                |
 | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| **A browser's mint work** - a partner keeps a tab open; the hub sends it captcha jobs; the browser answers | **Finished and proven.** Key-gated socket, real job round trip, even spread across partners, pool stops exactly at its target, entries expire and the pool refills itself; a graceful close takes the partner offline and frees a job it was holding instead of leaving it busy | `check-hub.mjs` (60 expectations) + `check-hub-multi.mjs` (9), all green |
+| **A browser's mint work** - a partner keeps a tab open; the hub sends it captcha jobs; the browser answers | **Finished and proven.** Key-gated socket, real job round trip, even spread across partners, pool stops exactly at its target, entries expire and the pool refills itself; a graceful close takes the partner offline and frees a job it was holding instead of leaving it busy | `check-hub.mjs` (66 expectations) + `check-hub-multi.mjs` (9), all green |
 | **Tokens / sessions pasted into `partner.html`**                                                           | **Accepted and verified on arrival.** The form POSTs to `POST /tokens`; the hub keeps only a SHA-256 fingerprint, checks the value with Aliyun straight away, and records valid / invalid / unverified — never the value                                                        | `check-hub.mjs` (donation expectations)                                  |
 | **An IP as an egress point** (`user.html`)                                                                 | **Toggle only.** The switch is remembered, nothing routes traffic through it                                                                                                                                                                                                    | Stated on the page itself                                                |
 
@@ -198,7 +198,7 @@ socket, which is why the pages need no configuration.
 | `POST /session`             | key for partner/admin/superadmin | issue the signed session cookie                                                                                                                                                                                                    |
 | `GET /session`              | session                          | say which role the caller is                                                                                                                                                                                                       |
 | `GET /config`               | **open**                         | the deployment values the browser needs (captcha scene/prefix/appkey/region/lang/sdkUrl, FE version, upstream origins, model bases) — env-driven, with the captured originals as defaults                                          |
-| `POST /tokens`              | partner or admin session         | accept a token/session donation, then verify it on arrival; keeps a fingerprint, a person and a status, never the value                                                                                                            |
+| `POST /tokens`              | partner or admin session         | accept a token/session donation, then verify it on arrival; keeps a fingerprint, a person and a status, never the value; **429** + `retry-after` past `GLM_DONATE_CONCURRENCY` for one caller                                |
 | `GET /tokens`               | partner or admin session         | donation counts by status; `?mine=1` yours, `?all=1` the admin's full list                                                                                                                                                         |
 | `POST /captcha/verify`      | admin session                    | re-run the Aliyun exchange on a donated value by hand                                                                                                                                                                              |
 | `GET /people`               | admin session                    | the per-person registry (names, roles, usage, pinned flag), never the keys; also says whether the directory is file-backed                                                                                                         |
@@ -245,6 +245,7 @@ original capture used**, so a plain checkout behaves as recorded.
 | `GLM_UPSTREAM_TIMEOUT`            | `30000`                                           | upstream call deadline in ms                                                                                                                                                                                                                                   |
 | `GLM_CHAT_CONCURRENCY`            | `4`                                               | how many `/v1/chat/completions` one caller may hold at once; the next one gets **429**                                                                                                                                                                         |
 | `GLM_CHAT_COOLDOWN_MS`            | `5000`                                            | how long a caller waits after being refused, in ms; `0` turns the wait off and leaves only the concurrency cap                                                                                                                                                 |
+| `GLM_DONATE_CONCURRENCY`          | `4`                                               | how many captcha-shaped donations one caller may have verifying against Aliyun at once; the next gets **429**                                                                                                                                                  |
 | `GLM_SIGN_SALT`                   | the reference projects' salt                      | the HMAC salt for the upstream `x-signature`; override it only for a different origin                                                                                                                                                                          |
 | `SESSION_SECRET`                  | ephemeral                                         | HMAC key for session cookies; unset = new every restart, so all sessions die                                                                                                                                                                                   |
 | `TOKEN_TARGET`                    | `750`                                             | pool stops asking for mints at this count (in-flight jobs count against it)                                                                                                                                                                                    |
@@ -299,15 +300,16 @@ and region headers.
 ## Checks
 
 ```bash
-npm run check        # the chain: html, links, then the five hub suites, then docs (not the last two below)
+npm run check        # the chain: html, links, the five hub suites, docs, then the doctor's self-test
 node check-html.mjs          # every built page's tags balanced and properly nested
 node check-links.mjs         # every local href/src resolves inside dist/
-node check-hub.mjs           # 60 expectations: auth gates, session, socket, /status, models, upstream, donations
+node check-hub.mjs           # 66 expectations: auth gates, session, socket, /status, models, upstream, donations, the donation cap
 node check-hub-multi.mjs     # 9 expectations: 3 partners, even spread, pool stops at target
 node check-config.mjs        # 97 expectations: dynamic config, the page gate, per-role pages, the pool life cycle, session expiry
 node check-chat.mjs          # 38 expectations: forwarding, request signing, pool spend and refund, feature defaults, the per-caller 429
 node check-people.mjs        # 56 expectations: create, revoke, rotate, the state file, hashing at rest, the seeded superadmin across a restart
 node check-docs.mjs          # the hand-off note still matches the code: every setting and path it names exists
+node doctor.mjs              # what is still open and the exact command that closes it (add --self-test to prove the report)
 node check-serve.mjs <url>   # every page and asset is actually served
 node check-html-selftest.mjs # proves the nesting check catches an orphaned block
 ```
@@ -357,6 +359,7 @@ app/
 ├── .repos/            downloaded reference archives (research material, not published)
 ├── build.mjs          copies public/ → dist/, fails if server code would leak into dist/
 ├── check-*.mjs        the check suites
+├── doctor.mjs         what is still open and the command that closes it (live: one real call)
 └── README.md          this file
 ```
 
@@ -384,6 +387,12 @@ Everything below was observed in the recorded capture of the original page
 Honest list, also shown on the admin page. Each item has a step-by-step runbook
 in [`HANDOFF.md`](HANDOFF.md#what-is-not-done-yet) — the commands to run, what a
 pass looks like, and where to record the result.
+
+Start with `node doctor.mjs`: it reads this list from the note, prints what each
+gap needs, says which of those this machine already has, and gives the exact next
+command. When `GLM_UPSTREAM` and a key are set, `node doctor.mjs live` makes one
+real call and tells you `PROVEN` or the exact code that refused it — no curl, no
+cookie jar.
 
 - **Donations are verified on arrival, but nothing consumes them.** The hub
   exchanges a donated captcha param with Aliyun as soon as it arrives and
@@ -441,6 +450,15 @@ pass looks like, and where to record the result.
   back on success, on an upstream error and on a timeout. This is a per-caller
   guard, not a global rate limiter: two anonymous callers behind one NAT share
   one budget, and nothing stops a caller from simply opening a second identity.
+- **A flood of donations is capped per caller, and nothing consumes them.** Each
+  captcha-shaped donation is one outbound Aliyun exchange, so a partner pasting
+  a hundred values would open a hundred calls at once: `GLM_DONATE_CONCURRENCY`
+  (default 4) caps them per caller, and the next one gets **429** +
+  `retry-after` before it is recorded or sent. A donation that is not
+  captcha-shaped never reaches the network at all, so this only bites a caller
+  sending something that looks like a real param. Note what it does *not* buy:
+  a donation is verified and recorded, never replayed upstream, so a thousand
+  chatglm.cn or z.ai sessions add zero chat capacity - only a minted param does.
 - **Only the directory is persisted.** The pool, sessions and donations live in
   memory, so a restart empties the pool and invalidates every session. That is
   deliberate: pool entries are captcha params that expire in half an hour.

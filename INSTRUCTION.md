@@ -63,7 +63,8 @@ npm run check        # the whole chain, in order
 
 Every suite that needs a hub starts its **own** on its own port and kills it
 afterwards: `5199` (hub), `5201` (multi-partner), `5203` (chat), `5205` (people),
-`5211` and `5212` (config). They are independent of your running hub — never
+`5211` and `5212` (config). `5202` is the stand-in Aliyun verify endpoint that
+`check-hub.mjs` starts. They are independent of your running hub — never
 point them at it.
 
 - A pass ends with `… check: …` per suite and exit code 0.
@@ -74,12 +75,25 @@ point them at it.
 - `EADDRINUSE` on one of those ports means a previous crashed run left a hub
   behind. Find and stop it before blaming the code:
   ```powershell
-  Get-NetTCPConnection -LocalPort 5199,5201,5203,5205,5211,5212 -State Listen |
+  Get-NetTCPConnection -LocalPort 5199,5201,5202,5203,5205,5211,5212 -State Listen |
     Select-Object LocalPort, OwningProcess
   Stop-Process -Id <the pid>
   ```
 - Run it before and after any change. It is the only thing standing between a
   plausible-looking edit and a silent regression.
+
+## What is left, and how to close it
+
+```powershell
+node doctor.mjs            # every open gap, what closes it, and what this machine already has
+node doctor.mjs live       # one real chat call, once GLM_UPSTREAM + a key are set
+```
+
+`doctor.mjs` reads the gap list straight out of `HANDOFF.md`, so it cannot list a
+gap that was already closed. It never prints a key and never writes a file. When
+`live` prints `PROVEN`, record the line it prints under the gap in `HANDOFF.md`
+and delete the gap — that is the closure; the doctor only does the mechanical
+part.
 
 ## Running it for real
 
@@ -156,9 +170,12 @@ That is the design, not a misconfiguration.
     machine it needs TLS in front of the hub, or the key is readable in transit.
 12. **The default bind is loopback** (`HOST=127.0.0.1`). To serve another
     machine, set `HOST=0.0.0.0` *and* put a real proxy in front of it — this hub
-    speaks plain HTTP, and the only limiting it does is the per-caller chat cap
-    (`GLM_CHAT_CONCURRENCY`, 4 at once). There is no global rate limit, no
-    connection cap and no TLS; the proxy supplies those.
+    speaks plain HTTP, and the only limiting it does is per caller: the chat cap
+    (`GLM_CHAT_CONCURRENCY`, 4 at once) and the donation cap
+    (`GLM_DONATE_CONCURRENCY`, 4 Aliyun exchanges at once). There is no global
+    rate limit, no connection cap and no TLS; the proxy supplies those. Note
+    also that donating many sessions buys no chat capacity: a donation is
+    verified and recorded, never replayed upstream.
 13. **Check before you trust a doc edit.** `check-docs.mjs` parses `HANDOFF.md`
     and `README.md`: every setting name must exist in `server/hub.mjs`, every
     `public/` or `server/` path must exist on disk, and the numbered-gap list

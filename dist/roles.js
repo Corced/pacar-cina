@@ -356,8 +356,17 @@ const ROLES = (() => {
             } else if (code === 403) {
               say('The hub refused: donating is for the partner or admin role.', 'bad');
               log('Donation refused — wrong role.');
+            } else if (code === 429) {
+              // The hub verifies a few at a time; a 429 is a queue, not a ban.
+              const err = (body && body.error) || {};
+              say('The hub is still checking ' + (err.limit || 4)
+                + ' of your donations with Aliyun — wait '
+                + (err.retry_after_seconds || 2) + 's, then paste again. Nothing was added.', 'bad');
+              log('Donation refused — too many checks in flight for this account.');
             } else {
-              say('The hub refused: ' + ((body && body.error) || ('HTTP ' + code)), 'bad');
+              const why = body && body.error;
+              say('The hub refused: '
+                + (typeof why === 'string' ? why : (why && why.message) || ('HTTP ' + code)), 'bad');
               log('Donation refused — value kept out of the pool.');
             }
           })

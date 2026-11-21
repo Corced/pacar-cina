@@ -199,6 +199,10 @@
     if (d.chatLimit) {
       setText('u-inflight', d.chatLimit.inFlight + ' / ' + d.chatLimit.concurrency);
     }
+    if (d.donationLimit) {
+      setText('d-verifying', d.donationLimit.verifying + ' / ' + d.donationLimit.concurrency);
+      setText('d-throttled', d.donationLimit.throttled);
+    }
 
     // Captcha verification counters.
     if (d.captcha) {
@@ -393,6 +397,7 @@
       .then(function (d) {
         var pillIds = { valid: 'd-valid', invalid: 'd-invalid', unverified: 'd-unverified' };
         if (d && d.ok && Array.isArray(d.donations)) {
+          setText('d-held', d.donations.length);
           var counts = { valid: 0, invalid: 0, unverified: 0 };
           d.donations.forEach(function (x) {
             if (counts[x.status] !== undefined) counts[x.status]++;

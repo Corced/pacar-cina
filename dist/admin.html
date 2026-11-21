@@ -244,6 +244,8 @@ socks5://127.0.0.1:1080</textarea>
     <div class="card span-all">
       <h2>Donations</h2>
       <div class="kv"><span class="k">Held</span><span class="v" id="d-held">—</span></div>
+      <div class="kv"><span class="k">Verifying now / limit</span><span class="v mono" id="d-verifying">-</span></div>
+      <div class="kv"><span class="k">Refused (429)</span><span class="v" id="d-throttled">-</span></div>
       <div class="kv">
         <span class="k">Statuses</span>
         <span class="v">
@@ -261,7 +263,10 @@ socks5://127.0.0.1:1080</textarea>
       <div class="note">Each row is one donated token or session, shown by its SHA-256 fingerprint —
       the value itself is never stored or displayed. <b>valid</b>/<b>invalid</b> come from a real Aliyun
       captcha exchange (POST <b>/captcha/verify</b> with {fp, value} or {param}); <b>unverified</b> means
-      not proven. Verification is admin-only.</div>
+      not proven. Verification is admin-only. Each captcha-shaped donation is one outbound exchange, so one
+      caller may have <b>4</b> verifying at once (<b>GLM_DONATE_CONCURRENCY</b>); the next gets <b>429</b>
+      + <b>retry-after</b> before it is recorded or sent. Donations are verified, never replayed upstream, so
+      volume here is not chat capacity.</div>
     </div>
 
     <!-- ── Captcha verification: the Aliyun exchange ── -->
@@ -305,7 +310,7 @@ socks5://127.0.0.1:1080</textarea>
             <tr>
               <td>Partner token/session donation</td>
               <td><span class="pill ok">verified on arrival</span></td>
-              <td>partner.html's form POSTs to the hub's <b>/tokens</b> endpoint (fingerprint + person + status, never the value). The hub now checks each donation against Aliyun as soon as it lands, so a status of valid or invalid comes from a real exchange and anything else settles as <b>unverified</b> rather than being claimed good. A <i>minted</i> param is what the chat path spends; donated values still stop at verified-and-recorded.</td>
+              <td>partner.html's form POSTs to the hub's <b>/tokens</b> endpoint (fingerprint + person + status, never the value). The hub now checks each donation against Aliyun as soon as it lands, so a status of valid or invalid comes from a real exchange and anything else settles as <b>unverified</b> rather than being claimed good. A <i>minted</i> param is what the chat path spends; donated values still stop at verified-and-recorded. Because each check is an outbound call, one caller may have <b>4</b> verifying at once (<b>GLM_DONATE_CONCURRENCY</b>); past that the hub answers <b>429</b> + <b>retry-after</b> and records nothing, so a flood is bounded rather than fanned out. Volume is not capacity: a thousand donated sessions buy no chat throughput.</td>
             </tr>
             <tr>
               <td>Per-person identity</td>

@@ -11,6 +11,7 @@
  * and the temp hub is touched; the hub holds everything in memory.
  */
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +19,29 @@ import { fileURLToPath } from 'node:url';
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.TEST_PORT || 5199);
 const BASE = 'http://127.0.0.1:' + PORT;
+const VERIFY_PORT = Number(process.env.TEST_VERIFY_PORT || 5202);
+
+/* A stand-in for Aliyun's verify endpoint, so a donation's outbound exchange is
+ * observable (and slow enough to overlap) without the network. It answers the
+ * way Aliyun does for a param that is not valid: a JSON body with a code. */
+let verifyCalls = 0;
+let verifyDelayMs = 0;
+const verifier = createServer((req, res) => {
+  let raw = '';
+  req.on('data', (d) => { raw += d.toString(); });
+  req.on('end', () => {
+    verifyCalls++;
+    const send = () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ code: 110, msg: 'not a valid answer' }));
+    };
+    if (verifyDelayMs) setTimeout(send, verifyDelayMs); else send();
+  });
+});
+await new Promise((ok, bad) => {
+  verifier.once('error', bad);
+  verifier.listen(VERIFY_PORT, '127.0.0.1', ok);
+});
 
 let failures = 0;
 function check(name, ok, extra = '') {
@@ -34,6 +58,7 @@ const hub = spawn(process.execPath, [join(ROOT, 'server', 'hub.mjs')], {
     JOB_TIMEOUT_MS: '4000',
     GLM_KEYS: 'partner:test-partner-key,admin:test-admin-key',
     GLM_PEOPLE: 'alice=partner:alice-secret,bob=admin:bob-secret',
+    GLM_CAPTCHA_VERIFY_URL: 'http://127.0.0.1:' + VERIFY_PORT + '/captcha/v3/verify',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -342,6 +367,37 @@ try {
     JSON.stringify(mineAlice.body.mine));
 
   // ── captcha verification: the real Aliyun exchange, admin-gated ──
+  /* ── a flood of captcha-shaped donations is capped per caller ──
+   * Each value below is long and base64-ish, so captchaParamFrom() accepts it
+   * and each one becomes its own outbound Aliyun exchange. Four run at a time;
+   * the fifth is refused before it is recorded or sent anywhere. */
+  verifyDelayMs = 800;
+  const ledgerBefore = await getJson('/tokens', admin.cookie);
+  const flood = await Promise.all(['a', 'b', 'c', 'd', 'e'].map(
+    (c) => postJson('/tokens', { kind: 'session', value: c.repeat(60) }, partner.cookie)));
+  check('four captcha-shaped donations from one caller are accepted at once',
+    flood.filter((r) => r.status === 200).length === 4,
+    flood.map((r) => r.status).join(','));
+  const floodRefused = flood.find((r) => r.status === 429);
+  check('the fifth is refused with 429', Boolean(floodRefused), flood.map((r) => r.status).join(','));
+  check('the refusal names the limit and the wait',
+    floodRefused && floodRefused.body && floodRefused.body.error.type === 'rate_limit_error'
+      && floodRefused.body.error.limit === 4 && floodRefused.body.error.retry_after_seconds === 2,
+    JSON.stringify(floodRefused && floodRefused.body));
+  await sleep(200);                      // let the accepted exchanges reach the stub
+  check('a refused donation never reaches Aliyun', verifyCalls === 4, 'calls=' + verifyCalls);
+  const ledgerAfter = await getJson('/tokens', admin.cookie);
+  check('a refused donation is not recorded in the ledger',
+    ledgerAfter.body.held === ledgerBefore.body.held + 4,
+    'held ' + ledgerBefore.body.held + ' -> ' + ledgerAfter.body.held);
+  await sleep(900);                      // the stub answers after 800ms
+  const afterFlood = await getJson('/status', admin.cookie);
+  check('the verifying count is back to zero once the exchanges settle',
+    afterFlood.body.donationLimit.verifying === 0
+      && afterFlood.body.donationLimit.throttled === 1,
+    JSON.stringify(afterFlood.body.donationLimit));
+  verifyDelayMs = 0;
+
   const cvPartner = await postJson('/captcha/verify', { param: 'x' }, partner.cookie);
   check('captcha verification is admin-only (partner 403)', cvPartner.status === 403, 'HTTP ' + cvPartner.status);
   const cvNone = await postJson('/captcha/verify', { param: 'x' }, null);
@@ -359,13 +415,18 @@ try {
       && ['valid', 'invalid', 'unverified'].includes(cvRun.body.status),
     cvRun.body.status + ' — ' + (cvRun.body.detail || ''));
   const afterCv = await getJson('/status', admin.cookie);
+  // The pool counters are named donatedValid / donatedInvalid / …, so the
+  // status the exchange settled on has to be mapped, not passed through: a
+  // bare `pool[status]` reads `pool.invalid`, which does not exist.
+  const poolKey = 'donated' + cvRun.body.status[0].toUpperCase() + cvRun.body.status.slice(1);
   check('the captcha counters and the donation status moved together',
     afterCv.body.captcha.checked >= 1
       && (cvRun.body.status === 'unverified'
         ? afterCv.body.pool.donatedValid === 0
-        : afterCv.body.pool[cvRun.body.status] >= 1)
+        : afterCv.body.pool[poolKey] >= 1)
       && afterCv.body.people.count === 3, // alice, bob, and the seeded superadmin
-    'checked=' + afterCv.body.captcha.checked + ' people=' + afterCv.body.people.count);
+    'checked=' + afterCv.body.captcha.checked + ' people=' + afterCv.body.people.count
+      + ' ' + poolKey + '=' + afterCv.body.pool[poolKey]);
 
   // ── the donation ledger has a ceiling ──
   /* /tokens?all=1 serialises every donation, so the array carries the same
@@ -388,5 +449,6 @@ try {
     ? 'hub check: routes, auth, sockets and donations all hold'
     : 'hub check: ' + failures + ' failure(s)');
   hub.kill('SIGTERM');
+  verifier.close();
   setTimeout(() => process.exit(failures > 0 ? 1 : 0), 300);
 }

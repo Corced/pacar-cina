@@ -123,7 +123,7 @@ process; past that the oldest is dropped. A check fills it to prove the cap.
 
 ## What actually works
 
-Each line was proven by a check in `npm run check` (260 assertions: 60 hub,
+Each line was proven by a check in `npm run check` (266 assertions: 66 hub,
 97 config, 9 multi-partner, 38 chat, 56 people). "Proven" means an assertion
 fails if it stops being true.
 
@@ -197,6 +197,20 @@ reports `chatLimit` (the two numbers, `inFlight`, `callers`) and
 `chat.throttled`. This is per caller, not a global limiter: two people behind one
 NAT share an IP budget, and a second identity is a second budget.
 
+**A donation flood is capped, and still buys nothing.** Every captcha-shaped
+donation is one outbound Aliyun exchange, so `POST /tokens` counts how many each
+caller has verifying (`GLM_DONATE_CONCURRENCY`, default 4) and answers **429** +
+`retry-after` past it. The refusal lands before the donation is recorded and
+before the exchange starts, so a refused value leaves no row and makes no call.
+Values that are not captcha-shaped never reach the network at all — the cap only
+bites someone sending something that looks like a real param. The slot is held
+for the exchange, not for the request (the response goes out first), so it is
+released in a `finally` on `verifyDonation`. `/status.donationLimit` reports
+`concurrency`, `verifying`, `callers` and `throttled`. What this does **not** do
+is turn a donation into capacity: donations are verified and recorded, never
+replayed upstream, so a partner pasting a thousand z.ai or chatglm.cn sessions
+adds zero chat throughput and mostly settles as `invalid`.
+
 **Identity is revocable at runtime.** A superadmin creates a person
 (`POST /people`) and sees the key once. An admin revokes or rotates
 (`POST /people/revoke`, `POST /people/rotate`): the key stops working on the
@@ -230,6 +244,14 @@ what a pass looks like, and where to record it. Every step is something one
 person with a browser and a terminal can do in an afternoon — none of them
 needs a change to the design.
 
+**Start with `node doctor.mjs`.** It reads this list, says what each gap needs,
+reports what this machine already has (an upstream, a key, a state file), and
+prints the next command. With `GLM_UPSTREAM` and `GLM_UPSTREAM_KEY` set,
+`node doctor.mjs live` starts its own hub on a spare port, makes one real call,
+prints `PROVEN` (or the exact status and body that refused it), and kills the
+hub — the mechanical half of gaps 1, 3 and 7 without curl or a cookie jar.
+Everything it prints is a probe, not a closure: the record below still decides.
+
 **How to record a closure.** When a runbook passes, add the date, the exact
 command, and the observed answer under that gap (a line or two, pasted output
 is better than a description), then delete the gap and lower the numbered-gap
@@ -251,6 +273,11 @@ chat.z.ai or chatglm.cn**, because no credential was ever supplied.
 _Close it by:_ setting `GLM_UPSTREAM` and `GLM_UPSTREAM_KEY` to a real account,
 then asserting a completion comes back. Until then treat the happy path as
 untested against the real service.
+
+Quickest path: with those two variables set, `node doctor.mjs live` does the
+hub start, the call and the verdict for you (steps 2 and 3 below), prints
+`PROVEN` or the exact status and body that refused it, and kills its own hub.
+The steps below are still what you record.
 
 1. Get an account token. Sign in to the upstream in a browser, open devtools →
    Network, send one chat message, and copy the `Authorization: Bearer …` value
@@ -335,6 +362,10 @@ turns it back off. What no check can show is what the real service _does_ with
 them: nothing here has called the upstream.
 
 _Close it by:_ the same credential as (1), one call per suffix, recorded.
+
+`node doctor.mjs live z.ai/glm-4.7-think` (and the same for `-search` and
+`-deepresearch`) makes each call and prints the reply, so step 1 below is one
+command per suffix. What the reply *means* is still the judgement call in step 2.
 
 1. With gap 1's hub still running, make three calls and keep each body:
    ```powershell
@@ -446,6 +477,10 @@ untested.
 _Close it by:_ one live capture against chatglm.cn with a credential, recorded
 alongside the z.ai one.
 
+`node doctor.mjs live cn/glm-4.7` runs the call in step 3 once the token is set
+— if the model id and the origin disagree you will see the path in the error
+body, which is the finding.
+
 1. Repeat gap 1's token capture on chatglm.cn instead: same devtools method, same
    `Authorization` header, and note whether the token is a JWT (the hub needs the
    `id` claim for `x-signature`; a non-JWT yields an empty account id, which the
@@ -523,22 +558,25 @@ alongside the z.ai one.
 npm run check
 ```
 
-Eight scripts, all must exit 0:
+Eight suites and the doctor's self-test, all must exit 0:
 
 | Suite                 | Assertions           | Covers                                                                                                 |
 | --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------ |
 | `check-html.mjs`      | —                    | tags balanced and properly nested                                                                      |
 | `check-links.mjs`     | 33 links + 6 anchors | every local reference **and** every `#anchor`, in-page and cross-page                                  |
-| `check-hub.mjs`       | 60                   | routes, auth, donations, verification, nav, gate                                                       |
+| `check-hub.mjs`       | 66                   | routes, auth, donations, the donation cap, verification, nav, gate                                      |
 | `check-hub-multi.mjs` | 9                    | the even spread across three partners                                                                  |
 | `check-config.mjs`    | 97                   | env-driven config, deployment addressing, role separation, server-side session expiry                  |
 | `check-chat.mjs`      | 38                   | forwarding, request signing, pool spend and refund, feature defaults, empty-pool labelling, the per-caller 429 |
 | `check-people.mjs`    | 56                   | create / revoke / rotate, live sessions and sockets dropped, the state file, hashing at rest, the seeded superadmin across a restart, a v1 file upgraded |
 | `check-docs.mjs`      | 18                   | this note and the README against the tree: settings, paths, stale claims, the gap-list floor           |
+| `doctor.mjs --self-test` | 9                | the report reads this note honestly: gap count, a closing step per gap, a key never printed, 200 the only "proven" |
 
 `check-chat.mjs` starts its own local stub for the upstream, so the whole chat
 path runs without a credential or the internet — the one part of forwarding that
-can be proven without an account.
+can be proven without an account. `check-hub.mjs` does the same for the Aliyun
+verify endpoint (a stub that answers `code 110` after a delay), which is how the
+donation cap is observed without a network.
 
 `check-links.mjs` validates anchors too — it used to strip them, which silently
 unchecked the deep links from the admin gaps table into `repos.html`. If you add

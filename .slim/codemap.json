@@ -1,7 +1,7 @@
 {
   "metadata": {
     "version": "1.0.0",
-    "last_run": "2026-11-21T08:58:46.998Z",
+    "last_run": "2026-11-21T10:01:00.974Z",
     "root": "C:\\Time Wasting\\Portfolio\\2API\\GLM2API\\app",
     "include_patterns": [
       "public/**/*",
@@ -17,7 +17,7 @@
     "exceptions": []
   },
   "file_hashes": {
-    "README.md": "30369aff6420300edf5c8690fa36c7ef",
+    "README.md": "82b5c921df05e41781040d4538a8e98f",
     "build.mjs": "8f5ed3618af1c4e398122d055bd84684",
     "check-chat.mjs": "5795e197109bf44a84abc50d43837a20",
     "check-config.mjs": "e3a33176d020a3f934a48e3c5c949126",
@@ -25,33 +25,34 @@
     "check-html-selftest.mjs": "58c1deda80a5446b7cd979b510fc685c",
     "check-html.mjs": "21cf063c17312b0698401e06f3cd912f",
     "check-hub-multi.mjs": "d57453327832004ab08985eb010b1c5a",
-    "check-hub.mjs": "b4da2bf470ec2a11f6867754addfd4a4",
+    "check-hub.mjs": "abc760b95ca9bfb3a76ce05b98f2a007",
     "check-links.mjs": "7bf783b45e7671305348793c74321499",
     "check-people.mjs": "6e297371123c9e5fbbf6422da1cb0ebd",
     "check-serve.mjs": "5aeaa3c72c243cc64d67c014c3b1af81",
+    "doctor.mjs": "90609f9e038bc53404f3392fb249eeab",
     "fetch-repos.mjs": "8f0013184c7c5bc24f02b1e76a187019",
-    "package.json": "783450b5839b745d78abae8f90b2e6d6",
+    "package.json": "3f849aab56853dde64e062d5299d2a90",
     "public/admin.css": "030314d5406b11b9a36d315b8c750ba4",
-    "public/admin.html": "9c287dee9ab1344773ddb83be74bc830",
-    "public/admin.js": "102fe0bc7589ebbd0834fd22132e10be",
+    "public/admin.html": "e4fbce3ce72331306a746e5f3c9f37df",
+    "public/admin.js": "611944ffbb8527106a252faea3848d26",
     "public/codemap.md": "476cff06d56b3be86edaa53a72e27600",
     "public/glm-client.js": "96b32006244a123be542ca6409fad542",
     "public/index.html": "b4f58cb66cc3ca8e41bcb521f44c52e3",
     "public/login.html": "f058d5ddcd02d1ab1ea66053ed55cfcb",
     "public/minter.css": "12e35838da1c5c3516c3e169dd50382a",
     "public/minter.js": "178ba58e74d023c7529b8f08554e6a56",
-    "public/partner.html": "6ac67ccb2a8de5952d34586f1c5e995b",
+    "public/partner.html": "66cea0bac9de72036f83788fa7085042",
     "public/repos.css": "0a93c4ed6a1e6927795d187aed84b6cf",
     "public/repos.html": "6879e8cf861837a73934c205cedb7b6e",
     "public/role.css": "66d327751d58a0a49008581ffce97e49",
-    "public/roles.js": "783ec5f6e453be2f247d4dcecf1bf308",
+    "public/roles.js": "b87a255c9e925ad203fa53ffac15759b",
     "public/user.html": "2bbe5bc3058438edd9404683a7737b2e",
-    "server/hub.mjs": "cea2a227318f138903dcac51dbe94cb0",
+    "server/hub.mjs": "94fc76dd4b369c65e9bc70ff16dd0979",
     "server/ws.mjs": "0777397167f6f3b543a8e2d797d33973"
   },
   "folder_hashes": {
-    ".": "01eb3dd41e6303ab4ec9a25b595221e8",
-    "public": "fb05149ada6bfd769832764353e97777",
-    "server": "90d2f4d6781f2a873092273ad703c8e6"
+    ".": "659efdf64a0292837891ed6de5ba9c09",
+    "public": "4aa1906a219c8f200cdcff0ab85a5512",
+    "server": "c4b0b05fb16733234d26ab494efcaa0e"
   }
 }
