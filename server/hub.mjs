@@ -671,6 +671,28 @@ function checkKey(role, given) {
   return !registered;   // open role: no key exists to check
 }
 
+/* Which role a key belongs to, when the caller names none. The sign-in page is
+ * one key field and no role list - a page that lists the roles tells every
+ * visitor how many there are and what each may do - so the key itself names the
+ * role. A person's own key names them; a role key names the role; anything else
+ * is nobody, and must not fall through to the open role or every typo would be
+ * a valid user session. */
+function resolveKey(given) {
+  if (typeof given !== 'string' || !given) return null;
+  // ponytail: one scrypt per person per attempt, the same cost a role-named
+  // sign-in already paid; a directory in the thousands wants a keyed lookup.
+  for (const o of state.people.values()) {
+    if (credentialMatches(o, given)) return { role: o.role, name: o.name };
+  }
+  for (const role of KEY_ROLES) {
+    const k = KEYS.get(role);
+    if (k && sameText(k, given)) {
+      return { role, name: role === 'superadmin' ? SUPERADMIN_NAME : null };
+    }
+  }
+  return null;
+}
+
 /* ── people: identity per person, not just per role ────────────────────────
  * The role registry says what a key can do; this says who holds it. Names are
  * the person's own word, not proof — the key is the proof. GLM_PEOPLE takes
@@ -1213,7 +1235,9 @@ function statusPayload(req) {
       cooldownMs: CHAT_COOLDOWN_MS,
       inFlight: chatInFlight(),
       callers: state.usage.size,
-      per: 'a person by name; a signed-in role; otherwise the client IP',
+      per: 'every call holds its address\'s budget, and a signed-in caller holds its own '
+        + '(a person by name, a role by its key) on top - so a second account on one machine '
+        + 'does not buy a second limit',
       note: 'a refused caller gets 429 with retry-after, then waits the cooldown before trying again',
     },
     donationLimit: {
@@ -1389,34 +1413,55 @@ function replyOf(text, streaming) {
   } catch { return ''; }
 }
 
-function takeChatSlot(key) {
+/* Every bucket one chat call must hold. An anonymous caller has nothing but an
+ * address, so that is its whole identity. A signed-in caller holds its own
+ * bucket (`person:` or `role:`) *and* its address's — so a second sign-in, or a
+ * second person, does not buy a second limit on the same machine. Only another
+ * address does, and no counter here can see that; that belongs in the proxy. */
+function chatSlotKeys(req, session) {
+  const addr = 'addr:' + addrOf(req);
+  return session ? [chatKeyOf(req, session), addr] : [addr];
+}
+
+function takeChatSlot(keys) {
   const now = Date.now();
-  let u = state.usage.get(key);
-  if (!u) { u = { active: 0, until: 0 }; state.usage.set(key, u); }
-  if (u.until > now) {
-    return { ok: false, why: 'cooling', retryAfter: Math.ceil((u.until - now) / 1000) };
+  const held = [];
+  for (const key of keys) {
+    let u = state.usage.get(key);
+    if (!u) { u = { active: 0, until: 0 }; state.usage.set(key, u); }
+    if (u.until > now) {
+      releaseChatSlot(held);
+      return { ok: false, why: 'cooling', retryAfter: Math.ceil((u.until - now) / 1000) };
+    }
+    if (u.active >= CHAT_CONCURRENCY) {
+      // Start the wait now; a repeat refusal does not extend it, or a client that
+      // ignores the 429 could keep itself locked out forever.
+      u.until = now + CHAT_COOLDOWN_MS;
+      releaseChatSlot(held);
+      return { ok: false, why: 'busy', retryAfter: Math.ceil(CHAT_COOLDOWN_MS / 1000) };
+    }
+    u.active++;
+    held.push(key);
   }
-  if (u.active >= CHAT_CONCURRENCY) {
-    // Start the wait now; a repeat refusal does not extend it, or a client that
-    // ignores the 429 could keep itself locked out forever.
-    u.until = now + CHAT_COOLDOWN_MS;
-    return { ok: false, why: 'busy', retryAfter: Math.ceil(CHAT_COOLDOWN_MS / 1000) };
-  }
-  u.active++;
-  return { ok: true };
+  return { ok: true, keys };
 }
 
-function releaseChatSlot(key) {
-  const u = state.usage.get(key);
-  if (!u) return;
-  u.active = Math.max(0, u.active - 1);
-  // Idle and past its cooldown: forget it, so the map holds only live callers.
-  if (u.active === 0 && u.until <= Date.now()) state.usage.delete(key);
+function releaseChatSlot(keys) {
+  for (const key of keys) {
+    const u = state.usage.get(key);
+    if (!u) continue;
+    u.active = Math.max(0, u.active - 1);
+    // Idle and past its cooldown: forget it, so the map holds only live callers.
+    if (u.active === 0 && u.until <= Date.now()) state.usage.delete(key);
+  }
 }
 
+/* Exactly one address bucket is taken per call, whatever the identity, so
+ * summing those counts calls. Summing every bucket would count a signed-in call
+ * twice. */
 function chatInFlight() {
   let n = 0;
-  for (const u of state.usage.values()) n += u.active;
+  for (const [key, u] of state.usage) if (key.startsWith('addr:')) n += u.active;
   return n;
 }
 
@@ -2164,12 +2209,39 @@ const server = createServer(async (req, res) => {
 
   if (p === '/session' && req.method === 'POST') {
     const body = await readBody(req);
-    const role = String((body && body.role) || '').toLowerCase();
-    if (!ROLES.has(role)) return json(res, 400, { error: 'role must be user, partner, admin or superadmin' });
+    // A body that does not parse is not a keyless sign-in. Refuse it, or a
+    // client sending garbage would be handed the open role with a 200.
+    if (!body || typeof body !== 'object') return json(res, 400, { error: 'bad json' });
+    const asked = String((body && body.role) || '').toLowerCase();
+    const key = body && body.key;
+    let named = String((body && body.name) || '').trim();
+
+    // The sign-in page sends a key and no role, so the key resolves it here. A
+    // request with no key at all is the open role (user); a key that matches
+    // nothing is nobody - a typo must not be a user session.
+    const found = asked ? null : resolveKey(key);
+    if (asked && !ROLES.has(asked)) {
+      return json(res, 400, { error: 'role must be user, partner, admin or superadmin' });
+    }
+    const role = asked || (found ? found.role : key ? '' : 'user');
+    if (!role) {
+      log('refused session: the key matched no role');
+      return json(res, 401, {
+        error: 'that key is not one this hub knows, so no role was granted',
+        role: null,
+      });
+    }
+    if (found && found.name) {
+      // The key already says who the caller is, so a name is only checked, never
+      // believed.
+      if (named && named !== found.name) {
+        return json(res, 400, { error: 'that name does not match the key presented' });
+      }
+      named = found.name;
+    }
 
     // A privileged role needs its key. This is the fix for "anyone can be
     // admin": the role is no longer whatever the caller types.
-    const named = String((body && body.name) || '').trim();
     const owner = named && state.people.get(named);
     let identity = null;
     if (owner && owner.role === role && checkKey(role, body && body.key)
@@ -2782,7 +2854,7 @@ const server = createServer(async (req, res) => {
     // Limit before spending: a refused request must not burn a pool entry, and
     // the slot is taken before the upstream call rather than after it.
     const who = chatKeyOf(req, session);
-    const slot = takeChatSlot(who);
+    const slot = takeChatSlot(chatSlotKeys(req, session));
     if (!slot.ok) {
       state.chat.throttled++;
       const secs = String(Math.max(1, slot.retryAfter));
@@ -2818,7 +2890,7 @@ const server = createServer(async (req, res) => {
         // history: the second would be built without the first's reply, and the
         // two would then overwrite each other's turns. One turn at a time.
         if (prev.busy) {
-          releaseChatSlot(who);
+          releaseChatSlot(slot.keys);
           return json(res, 409, {
             error: {
               message: 'this conversation already has a turn in flight; wait for its answer, then '
@@ -2833,7 +2905,7 @@ const server = createServer(async (req, res) => {
         // The slot was taken above for a request that is not going anywhere:
         // give it back, or four refusals would cost this caller its whole
         // budget with nothing in flight.
-        releaseChatSlot(who);
+        releaseChatSlot(slot.keys);
         return json(res, 404, {
           error: {
             message: 'no such conversation for this caller. Omit chat_id to start one — the id '
@@ -3046,7 +3118,7 @@ const server = createServer(async (req, res) => {
       // Every admitted request gives its slot back, on success, on refusal from
       // upstream, and on a throw — otherwise four failures would lock a caller
       // out until the process restarted. The conversation is free again too.
-      releaseChatSlot(who);
+      releaseChatSlot(slot.keys);
       chatRow.busy = false;
     }
   }
@@ -3161,7 +3233,7 @@ server.listen(PORT, HOST, () => {
   } else {
     log('  no upstream: /v1/chat/completions answers 501 (set GLM_UPSTREAM to forward)');
   }
-  log('  chat limit: ' + CHAT_CONCURRENCY + ' in flight per caller, then a '
+  log('  chat limit: ' + CHAT_CONCURRENCY + ' in flight per address and per caller, then a '
     + Math.round(CHAT_COOLDOWN_MS / 1000) + 's wait (429 + retry-after)');
   log('  donation limit: ' + DONATE_CONCURRENCY + ' Aliyun exchange(s) in flight per caller');
   if (String(process.env.GLM_WS_AUTH || 'required').toLowerCase() === 'open') {

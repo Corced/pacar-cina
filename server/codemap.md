@@ -160,12 +160,15 @@ POST /v1/chat/completions → readBody → resolveModel(model)
                      with glm; the source must be z.ai or cn; an exact
                      GLM_MODEL_EXTRA id wins over the base+suffix split)
    no UPSTREAM.url → 501 {type:'not_implemented', resolved_model, model_known}
-   else            → slot = takeChatSlot(chatKeyOf(req, session)) — before the
-                     pool is touched, so a refusal spends nothing;
+   else            → slot = takeChatSlot(chatSlotKeys(req, session)) - the keys
+                     are `addr:<ip>` for everyone, plus `person:`/`role:` for a
+                     signed-in caller, taken before the pool is touched so a
+                     refusal spends nothing;
                      !slot → 429 {type:'rate_limit_error', limit,
-                      retry_after_seconds} + retry-after, and that caller is
-                      held for GLM_CHAT_COOLDOWN_MS (a retry inside it is 429
-                      too); the slot is released in a finally on every path;
+                     retry_after_seconds} + retry-after, and every bucket that
+                     refused is held for GLM_CHAT_COOLDOWN_MS (a retry inside it
+                     is 429 too) - so a second identity on one address waits with
+                     it; the slots are released in a finally on every path;
                      tag = callerTag(who) (8-hex HMAC, per-process salt);
                      continuation, before anything is spent:
                        body.chat_id owned by this tag → reuse the row;
@@ -252,8 +255,8 @@ the path always taken from the source so `cn/` keeps `/api/v1`.
 Files: `hub.mjs` (all of the above), `ws.mjs` (`acceptKey`, `encodeFrame`,
 `decodeFrames`, `attachSocket`, `OP`, `newId`), `socks5.mjs`
 (`socks5Connect`, `forward`). Proving suites: `check-chat.mjs`
-(local upstream stub plus a SOCKS5 stub, 97 assertions) for forwarding, the
-pool, the routed call and the fallback, `check-hub.mjs` (71 assertions,
+(local upstream stub plus a SOCKS5 stub, 98 assertions) for forwarding, the
+pool, the routed call and the fallback, `check-hub.mjs` (73 assertions,
 including a stub Aliyun endpoint) for the routes, the donation cap,
 `/status/self` and the sockets, and `check-people.mjs` (57 assertions, four hub
 restarts) for the directory. `check-config.mjs` (113 assertions) covers the

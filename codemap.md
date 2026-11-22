@@ -91,7 +91,7 @@ Three flows carry the system, each written out as an arrow trace in
 | Change a page's behaviour | `public/codemap.md` for the page→script→route table |
 | Change the mint protocol | `server/hub.mjs` `onMinterSocket` **and** `public/minter.js` — the two must move together |
 | Change the captcha widget config | `GET /config` in the hub *and* `glm-client.js loadConfig()` |
-| Verify anything | `npm run check` (nine suites + the doctor's self-test, 347 counted assertions) - see `HANDOFF.md` "Verifying" |
+| Verify anything | `npm run check` (nine suites + the doctor's self-test, 350 counted assertions) - see `HANDOFF.md` "Verifying" |
 
 ## Traps (from `HANDOFF.md`, still true)
 

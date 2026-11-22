@@ -232,77 +232,45 @@ const ROLES = (() => {
     } catch { return fallback; }
   }
 
+  /* One key field and no role list. A page that lists the roles tells every
+   * visitor how many there are and what each may do; the key already names its
+   * role, so the hub resolves it (POST /session with {key} and no role). A
+   * visitor with no key is the open role, which grants nothing but lending an
+   * address. */
   function mountLogin() {
-    var form = document.getElementById('keyform');
+    var form = /** @type {HTMLFormElement | null} */ (document.getElementById('keyform'));
     var input = /** @type {HTMLInputElement} */ (document.getElementById('keyinput'));
-    var submit = document.getElementById('keygo');
+    var guest = document.getElementById('keyguest');
 
-    document.querySelectorAll('#roles .role').forEach((/** @type {any} */ a) => {
-      const r = /** @type {string} */ (a.dataset.role);
-      if (role() === r) a.setAttribute('aria-pressed', 'true');
-      a.addEventListener('click', (/** @type {MouseEvent} */ ev) => {
-        // The card is an <a>: without this, the browser follows it and the key
-        // box below never gets a chance to appear. The script owns the move.
-        ev.preventDefault();
-        remember(r);
-        // Privileged roles need a key before the hub will grant the session.
-        hub().then((h) => {
-          if (!h.present) {
-            setSignNote('No hub on this origin, so no session was issued: the role is only '
-              + 'remembered in this browser. Start the hub (npm run hub) to get a signed one.', 'warn');
-            if (form) form.hidden = true;
-            return;
-          }
-          if (r === 'user') {
-            // Open on purpose: lending your own IP grants no access to anyone else.
-            if (form) form.hidden = true;
-            return signIn(r, null);
-          }
-          if (form) {
-            form.hidden = false;
-            input.value = '';
-            input.focus();
-            setSignNote('Signing in as ' + r + ' needs that role\'s key, which the hub printed '
-              + 'when it started (or set it with GLM_KEYS / GLM_SUPERADMIN). This is a key, not a '
-              + 'password: there are no accounts. If it is a named person\'s key, add their name '
-              + 'below and the session will carry it.', 'mut');
-          }
-        });
-      });
+    // Enter comes free: the box is a real <form>, which is also what password
+    // managers and the browser's own "field outside a form" warning look for.
+    if (form) form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      signIn(input ? input.value.trim() : '');
     });
-
-    function doKey() {
-      var want = role();
-      if (want !== 'partner' && want !== 'admin' && want !== 'superadmin') {
-        return setSignNote('Pick the partner, admin or superadmin role first.', 'warn');
-      }
-      signIn(want, input.value.trim());
-    }
-    if (submit) submit.addEventListener('click', doKey);
-    if (input) input.addEventListener('keydown', function (e) { if (e.key === 'Enter') doKey(); });
+    if (guest) guest.addEventListener('click', function (ev) { ev.preventDefault(); signIn(''); });
 
     // Say up front which mode this page is in.
     hub().then((h) => {
       if (h.present) {
-        setSignNote('A hub answered. Sessions are signed, and the partner and admin roles now '
-          + 'require their key — the role is granted by the key, not by you picking it.', 'ok');
+        setSignNote('A hub answered on this origin. Paste the key you were given, or continue '
+          + 'without one.', 'ok');
       } else {
-        setSignNote('No hub on this origin. Choosing a role only remembers it in this browser; '
-          + 'nothing is issued and nothing is checked. Run "npm run hub" to change that.', 'warn');
+        setSignNote('No hub on this origin, so nothing can be signed in here. Start it with '
+          + '"npm run hub" and reload.', 'warn');
       }
     });
   }
 
-  /** @param {string} r @param {string | null} key */
-  function signIn(r, key) {
-    setSignNote('Asking the hub for a ' + r + ' session…', 'mut');
-    /** @type {{ role: string, key?: string, name?: string }} */
-    var body = { role: r };
+  /** @param {string} key — the key, or '' for the open role */
+  function signIn(key) {
+    setSignNote('Asking the hub for a session…', 'mut');
+    /** @type {{ key?: string }} */
+    var body = {};
     if (key) body.key = key;
-    // A person can sign under their own name if the form carries one; the
-    // hub only accepts it when that person's own key was given too.
-    var nameBox = /** @type {HTMLInputElement | null} */ (document.getElementById('personname'));
-    if (nameBox && nameBox.value.trim()) body.name = nameBox.value.trim();
+    // No name field: the key already says who the caller is, and the hub reads
+    // the person off it. A name offered by a page would be checked, never
+    // believed, so there is nothing for one to add here.
     return fetch((HUB || '') + '/session', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -311,6 +279,7 @@ const ROLES = (() => {
       .then((res) => res.json().then((d) => ({ status: res.status, d })))
       .then(({ status, d }) => {
         if (status !== 200) throw new Error(d.error || ('HTTP ' + status));
+        remember(d.role);
         setSignNote('Signed in as ' + d.role
           + (d.name ? ' (' + d.name + ')' : '') + '. ' + d.note + '.', 'ok');
         var go = document.getElementById('keygo');

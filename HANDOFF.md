@@ -139,8 +139,8 @@ process; past that the oldest is dropped. A check fills it to prove the cap.
 
 ## What actually works
 
-Each line was proven by a check in `npm run check` (347 assertions: 71 hub,
-113 config, 9 multi-partner, 97 chat, 57 people). "Proven" means an assertion
+Each line was proven by a check in `npm run check` (350 assertions: 73 hub,
+113 config, 9 multi-partner, 98 chat, 57 people). "Proven" means an assertion
 fails if it stops being true.
 
 **The spread - the core claim.** Three partners with different egress addresses
@@ -154,9 +154,11 @@ signed HttpOnly cookie comes back. `/status` refuses you without an admin sessio
 no session - `GLM_WS_AUTH=open` is the logged escape hatch.
 
 **The browser flow was walked end to end, not just the API.** A real browser
-signed in as partner on the front door (the key box appears only because the role
-card stops the link - without `preventDefault()` the href won and nobody could
-sign in), opened `/chat.html`, and talked twice through a local upstream stub:
+signed in as partner on the front door (at the time it listed role cards; it is
+now a single key field and the key resolves its own role - `check-hub.mjs` proves
+a key alone signs in and an unknown key signs nobody in, and `check-html.mjs`
+fails if the page names a role again), opened `/chat.html`, and talked twice
+through a local upstream stub:
 turn 1 reached the upstream with 1 message, turn 2 with 3 (its own history plus
 the ask) and was labelled `the hub continued this conversation`. Restarting the
 hub and sending a third turn produced `404 · conversation gone` with the id still
@@ -194,10 +196,18 @@ configuration. Behind a proxy, set `GLM_PUBLIC_URL`; set `GLM_TRUST_PROXY=1` onl
 if you are behind one, because otherwise any visitor can make the panel print an
 address of their choosing.
 
-**Roles are kept apart.** The sign-in page is the front door. The hub writes a
-navigation bar into each page listing only that role's links, and redirects a
-signed-in visitor away from another role's page with `?wrongrole=`, so nobody is
-one wrong click from the other side's screens.
+**Roles are kept apart.** The sign-in page is the front door, and it is one key
+field: it names no roles and lists no capabilities, because that would tell every
+visitor how many roles exist and what each may do. The key names its own role -
+`POST /session` with `{key}` and no `role` resolves it against the people
+registry first, then the role keys - and a key that matches nothing is a **401**,
+never a fall-through to the open `user` role. A visitor with no key at all
+continues as `user`, and the moment a superadmin creates a person holding `user`
+the open door closes by itself (`checkKey` counts any registered key for the
+role), so an invite-only hub is one `POST /people` away with no new setting. The hub then writes a navigation bar into each page listing
+only that role's links, and redirects a signed-in visitor away from another
+role's page with `?wrongrole=`, so nobody is one wrong click from the other
+side's screens.
 
 **Model catalog and forwarding.** 32 ids by default — 4 bases × 2 sources × 4
 suffixes — of the shape `<source>/<base>[-suffix]`, growing as `GLM_MODEL_EXTRA`
@@ -215,18 +225,25 @@ drifted above reality for good. An empty pool still forwards but labels the
 response `x-glm-pool: empty`, and `/status` counts `pool.consumed` and
 `chat.poolSpent` as the entry goes.
 
-**One caller, four requests, then a wait.** `GLM_CHAT_CONCURRENCY` (default 4)
-caps chat requests in flight per identity — a named person, else the role, else
-the client IP when nobody is signed in — and the request past the cap gets **429**
-with `retry-after` plus `{type:"rate_limit_error", limit, retry_after_seconds}`.
+**One address, four requests, then a wait.** `GLM_CHAT_CONCURRENCY` (default 4)
+caps chat requests in flight per identity - a named person, else the role, else
+the client IP when nobody is signed in - **and per address as well**, so the
+request past the cap gets **429** with `retry-after` plus
+`{type:"rate_limit_error", limit, retry_after_seconds}`. The address bucket is
+what stops a second sign-in being a second budget: every call holds
+`addr:<ip>`, and a signed-in call holds its own `person:` / `role:` bucket on
+top. Two tabs in one role, two people, or an anonymous caller and a named one,
+on one machine, share the same ceiling - only another address gets another. That
+is the honest limit of counting here: a caller who really has a second address
+needs the proxy in front to be the limiter.
 The refusal happens before `consumeToken()`, so it spends no pool entry. That
 caller then waits `GLM_CHAT_COOLDOWN_MS` (default 5000) before it may try again,
-and a retry inside the wait is refused too — a client that ignores the 429
+and a retry inside the wait is refused too - a client that ignores the 429
 cannot spin. Slots are released in a `finally`, so an upstream error or a
 timeout gives the slot back rather than locking the caller out. `/status`
 reports `chatLimit` (the two numbers, `inFlight`, `callers`) and
-`chat.throttled`. This is per caller, not a global limiter: two people behind one
-NAT share an IP budget, and a second identity is a second budget.
+`chat.throttled`. It is not a global limiter: two people behind one NAT share
+one budget, which is the same rule stated the other way round.
 
 **A donation flood is capped, and still buys nothing.** Every captcha-shaped
 donation is one outbound Aliyun exchange, so `POST /tokens` counts how many each
@@ -358,7 +375,7 @@ phase 7, 11 assertions against an in-file SOCKS5 stub that records the CONNECT
 target and forwards - a routed call labelled `proxy`, a route that cannot
 handshake still succeeding labelled `direct-fallback`, a dead route not dialled
 twice, `/status.egress` reporting routes and dead. Run: `node check-chat.mjs` ->
-97 ok, 0 fail, exit 0.
+98 ok, 0 fail, exit 0.
 
 ## What is not done yet
 
@@ -390,7 +407,7 @@ The whole path is proven against a local stub instead of an unreachable host:
 still picks the path, so `cn/…` keeps its own endpoint), the credential rides as
 a bearer token, `x-signature` is a real HMAC over the flattened prompt, and the
 suffix features arrive in the reference projects' `features` shape
-(`check-chat.mjs`, 97 assertions). But it has **never made a successful call to
+(`check-chat.mjs`, 98 assertions). But it has **never made a successful call to
 chat.z.ai or chatglm.cn**, because no real credential has been tried.
 
 The credential has two sources now, and neither one is the operator's alone: a
@@ -667,10 +684,10 @@ Nine suites and the doctor's self-test, all must exit 0:
 | `check-html.mjs`      | —                    | tags balanced and properly nested, and every id a script reads is defined by a page or made at run time |
 | `check-types.mjs`     | —                    | all six scripts in `public/` type-check clean under `tsc --strict` (skips loudly when no tsc is installed) |
 | `check-links.mjs`     | 37 links + 6 anchors | every local reference **and** every `#anchor`, in-page and cross-page                                  |
-| `check-hub.mjs`       | 71                   | routes, auth, donations, the donation cap, verification, nav, gate, `/status/self`                     |
+| `check-hub.mjs`       | 73                   | routes, auth, donations, the donation cap, verification, nav, gate, `/status/self`                     |
 | `check-hub-multi.mjs` | 9                    | the even spread across three partners                                                                  |
 | `check-config.mjs`    | 113                  | env-driven config, deployment addressing, role separation, server-side session expiry, the chat page, a pool that survives a restart |
-| `check-chat.mjs`      | 97                   | forwarding, request signing, pool spend and refund, feature defaults, empty-pool labelling, the per-caller 429, the model rule, the conversation tracer, the contributed-key gate, SOCKS5 routing and its labelled fallback |
+| `check-chat.mjs`      | 98                   | forwarding, request signing, pool spend and refund, feature defaults, empty-pool labelling, the per-caller 429 and the address ceiling behind it, the model rule, the conversation tracer, the contributed-key gate, SOCKS5 routing and its labelled fallback |
 | `check-people.mjs`    | 57                   | create / revoke / rotate, live sessions and sockets dropped, the state file, hashing at rest, the seeded superadmin across a restart, a v1 file upgraded |
 | `check-docs.mjs`      | 27                   | this note, the README and the newcomer page against the tree: settings, paths, stale claims, the gap-list floor, the .env template, counts that must agree |
 | `doctor.mjs --self-test` | 9                | the report reads this note honestly: gap count, a closing step per gap, a key never printed, 200 the only "proven" |
@@ -696,7 +713,7 @@ server/ws.mjs         hand-written RFC 6455 WebSocket server.
 public/index.html     the rebuild of the captured page (the minter).
 public/minter.js      its behaviour: socket, jobs, background mode, IP lookup.
 public/glm-client.js  the captcha client: SDK loading, minting, signing.
-public/login.html     the front door: role picker.
+public/login.html     the front door: one key field, no role list.
 public/chat.html      the chat page every signed-in role gets.
 public/chat.js        its behaviour: catalog, one turn at a time, chat-id resume.
 public/admin.html     the operator panel.

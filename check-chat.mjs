@@ -10,7 +10,7 @@
  *   - the x-signature is a real HMAC over the prompt, not a placeholder
  *   - a 401/403/429 returns the entry unspent instead of burning it
  *   - an empty pool still forwards, labelled, rather than refusing
- *   - one caller holds four chat requests, the fifth is 429 + retry-after
+ *   - one address holds four chat requests, the fifth is 429 + retry-after
  *
  * Starts its own stub + hub on spare ports; nothing outside is touched.
  */
@@ -409,13 +409,20 @@ try {
     afterLimit.chatLimit.inFlight === 0, 'inFlight=' + afterLimit.chatLimit.inFlight);
 
   stubDelayMs = 0;
-  // The budget is per caller, not global: a named person is not held hostage by
-  // this anonymous caller's cooldown.
+  // The address ceiling: a name does not buy a second budget on the same
+  // machine, which is the whole point - a second sign-in is one POST away, so a
+  // per-person limit alone would be bypassed in five seconds. The person is
+  // refused here because this address is still cooling down, and admitted below
+  // once the wait is over.
   const alice = await chat('z.ai/glm-5.3', aliceCookie);
-  check('a named person has their own budget while another caller waits',
-    alice.status === 200, 'HTTP ' + alice.status);
+  check('a second identity on the same address is held by the address\'s wait',
+    alice.status === 429, 'HTTP ' + alice.status);
 
   await sleep(700);                      // past the 1200ms cooldown
+  const aliceAfter = await chat('z.ai/glm-5.3', aliceCookie);
+  check('and admitted with its own budget once the wait is over',
+    aliceAfter.status === 200, 'HTTP ' + aliceAfter.status);
+
   const eight = await chat('z.ai/glm-5.3');
   check('the same caller may try again once the wait is over',
     eight.status === 200, 'HTTP ' + eight.status);
@@ -983,7 +990,7 @@ try {
   deadSocks.close();
 }
 
-console.log(failures === 0 ? '\nchat check: the pool is spent, signed, refunded on refusal, limited per caller, '
-  + 'and a routed call is labelled and falls back when its route is dead'
+console.log(failures === 0 ? '\nchat check: the pool is spent, signed, refunded on refusal, limited per address '
+  + 'and per caller, and a routed call is labelled and falls back when its route is dead'
   : '\nchat check: ' + failures + ' problem(s)');
 process.exit(failures === 0 ? 0 : 1);

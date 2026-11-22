@@ -82,7 +82,7 @@ session cookie is one role at a time per browser.
 | ------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Minter  | `index.html` + `minter.js` | The page a partner keeps open. Connects to `/minter/ws`, answers mint jobs, shows status/mints/in-flight and a 40-line activity log. This is a rebuild of the original page and keeps its exact contract.                                                       |
 | Chat    | `chat.html` + `chat.js`    | The one page every signed-in role gets. Model picker from `GET /v1/models`, a transcript, one turn at a time; it keeps the `x-glm-chat` id and hands it back, so a follow-up continues the topic. Text lives in the tab only — a reload starts a clean transcript while the hub keeps the conversation. Every refusal (400/404/409/429/501/502) is quoted, not smoothed over. |
-| Sign in | `login.html`               | **The front door.** `/` redirects here (or to your own page if you are already signed in). The three roles. **user** signs in with no key (open by design); **partner**, **admin** and **superadmin** reveal a key box, plus an optional name box for a person in the directory — the hub refuses a name paired with a key that is not that person's rather than quietly dropping the name. Explains honestly what a session is and what it is not. |
+| Sign in | `login.html`               | **The front door.** `/` redirects here (or to your own page if you are already signed in). One field: a key. The page names no roles and shows no capability table - the key itself says which role it is (the hub resolves it against the people registry, then the role keys), and a key that matches nothing is refused rather than quietly made a `user`. A visitor with no key continues as **user**, the open role that grants only lending an address. |
 | User    | `user.html` + `user.js`    | A report, not a control: polls `GET /status/self` every 5 s and shows this address as the hub saw it (is a minter socket from it connected, how many captchas it returned) plus live pool numbers. Solving happens on the minter page; this page says so and links there. |
 | Partner | `partner.html`             | “Lend accounts”. The token/session paste form (currently local-only), contribution counters, same minting ability as everyone.                                                                                                                                  |
 | Admin   | `admin.html`               | The operator panel: status, partner pool (id, IP, role, mints, state), token pool, shared upstream tokens (contribute, health, revoke), feature defaults, a read-only egress panel (mode, routes, dead, last error), endpoints, activity log, a key box on 401/403. |
@@ -217,7 +217,7 @@ socket, which is why the pages need no configuration.
 | `POST /features`            | admin session                    | default feature flags applied to **every** chat request; a model suffix turns one on for a single call. `persist_history` is deliberately absent - the hub keeps no conversation store, so a switch for it could never do anything |
 | `POST /admin/session/clear` | admin session                    | close every connected partner socket (this is a disconnect, not a logout)                                                                                                                                                          |
 | `GET /v1/models`            | open                             | the model list                                                                                                                                                                                                                     |
-| `POST /v1/chat/completions` | open                             | forwards when `GLM_UPSTREAM` is set, otherwise **501** with the reason; **429** + `retry-after` past `GLM_CHAT_CONCURRENCY` for one caller; **404** for a `chat_id` that is not this caller's; **409** while that conversation already has a turn in flight; replies carry `x-glm-chat` / `x-glm-caller`      |
+| `POST /v1/chat/completions` | open                             | forwards when `GLM_UPSTREAM` is set, otherwise **501** with the reason; **429** + `retry-after` past `GLM_CHAT_CONCURRENCY` for one address or identity; **404** for a `chat_id` that is not this caller's; **409** while that conversation already has a turn in flight; replies carry `x-glm-chat` / `x-glm-caller`      |
 | `GET /…`                    | **session** for `.html`          | serves `public/`; signed out, pages redirect to `login.html?next=…`, while CSS/JS/icons stay public. Path traversal is refused with 403                                                                                            |
 
 ### Environment variables
@@ -260,7 +260,7 @@ state file belongs outside the repo for the same reason.
 | `GLM_EGRESS_ROUTES`               | — (direct)                                        | comma-separated `host:port` SOCKS5 endpoints (no auth) for the chat forward and the upstream-key probe; empty means every call goes direct. Captcha verification and donations always stay direct                                                                 |
 | `GLM_EGRESS_MODE`                 | `proxy` when routes exist, else `direct`          | `direct` forces routing off even with routes configured; `tor` uses the same client and only changes the label and the address                                                                                                                                  |
 | `GLM_EGRESS_DEAD_MS`              | `60000`                                           | how long a route that failed its handshake is skipped before it is tried again                                                                                                                                                                                 |
-| `GLM_CHAT_CONCURRENCY`            | `4`                                               | how many `/v1/chat/completions` one caller may hold at once; the next one gets **429**                                                                                                                                                                         |
+| `GLM_CHAT_CONCURRENCY`            | `4`                                               | how many `/v1/chat/completions` one address may hold at once, and one identity on top of that; the next one gets **429**                                                                                                                                                                         |
 | `GLM_CHAT_COOLDOWN_MS`            | `5000`                                            | how long a caller waits after being refused, in ms; `0` turns the wait off and leaves only the concurrency cap                                                                                                                                                 |
 | `GLM_CHAT_KEEP_CHARS`             | `6000`                                            | characters of one conversation the hub replays when a caller continues it with only a new message; the oldest turns fall off first                                                                                                                             |
 | `GLM_DONATE_CONCURRENCY`          | `4`                                               | how many captcha-shaped donations one caller may have verifying against Aliyun at once; the next gets **429**                                                                                                                                                  |
@@ -464,7 +464,7 @@ app/
 │   ├── index.html     minter page
 │   ├── minter.js/.css minter behaviour + theme
 │   ├── glm-client.js  captcha client (GLM.mintCaptchaSerialized)
-│   ├── login.html     roles + key sign-in
+│   ├── login.html     one key field, no role list
 │   ├── chat.html/.js  the chat page every signed-in role gets
 │   ├── user.html/.js  what the hub can prove about your address
 │   ├── partner.html   the "lend accounts" page
@@ -569,16 +569,19 @@ cookie jar.
   `/v1/chat/…` answers 501 rather than faking success. `check-chat.mjs` proves the
   whole call against a local stub; no call to the live service has succeeded,
   because no credential was ever supplied.
-- **One caller holds at most four chat requests.** `GLM_CHAT_CONCURRENCY`
-  (default 4) counts requests in flight per identity — a named person, else the
-  role, else the client IP when nobody is signed in — and the next one gets
+- **One address holds at most four chat requests.** `GLM_CHAT_CONCURRENCY`
+  (default 4) counts requests in flight per address, and a signed-in caller holds
+  its own identity on top - a named person, else the role. The next one gets
   **429** with `retry-after` and `{type:"rate_limit_error", limit, retry_after_seconds}`.
   A refusal spends no pool entry, and the caller then waits
   `GLM_CHAT_COOLDOWN_MS` (default 5000) before trying again; a retry inside that
   wait is refused too, so a client that ignores the 429 cannot spin. Slots come
-  back on success, on an upstream error and on a timeout. This is a per-caller
-  guard, not a global rate limiter: two anonymous callers behind one NAT share
-  one budget, and nothing stops a caller from simply opening a second identity.
+  back on success, on an upstream error and on a timeout. The address bucket is
+  what stops a second account being a second budget: two tabs, two people or a
+  signed-in and an anonymous caller on one machine share one ceiling, and only
+  another address gets another. That is also the limit of it - a caller with a
+  second address needs the proxy in front to be the limiter, and two people
+  behind one NAT are held to one budget.
 - **A flood of donations is capped per caller, and nothing consumes them.** Each
   captcha-shaped donation is one outbound Aliyun exchange, so a partner pasting
   a hundred values would open a hundred calls at once: `GLM_DONATE_CONCURRENCY`

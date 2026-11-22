@@ -125,6 +125,17 @@ try {
   const wrongKey = await signIn('admin', 'not-the-key');
   check('a wrong admin key is refused', wrongKey.status === 401, 'HTTP ' + wrongKey.status);
 
+  // The sign-in page is one key field and names no roles, so the key has to
+  // name its own role. A key the hub does not know must fall through to nothing
+  // - not to the open role, which would make every typo a valid session.
+  const keyOnly = await signIn(undefined, 'test-partner-key');
+  check('a key alone signs in to the role it belongs to',
+    keyOnly.status === 200 && keyOnly.body.role === 'partner',
+    'HTTP ' + keyOnly.status + ' role=' + keyOnly.body.role);
+  const unknownKey = await signIn(undefined, 'not-a-key-anybody-has');
+  check('a key that matches no role signs nobody in',
+    unknownKey.status === 401 && !unknownKey.cookie, 'HTTP ' + unknownKey.status);
+
   const partner = await signIn('partner', 'test-partner-key');
   check('partner signs in with the key', partner.status === 200 && /glm_sid=/.test(partner.cookie));
   check('the session cookie is HttpOnly', /HttpOnly/i.test(partner.raw || ''), partner.raw);

@@ -28,9 +28,9 @@ index.html                   pool: minted captcha params         chat.z.ai
 One Node process, no database, no framework. It serves the pages, holds the
 WebSocket the minter connects to, keeps the token pool, signs the upstream
 request and forwards it. The pages are split by role: `login.html` is the front
-door, `index.html` the minter, `chat.html` the API's face, `partner.html`,
-`user.html` and `admin.html` the three dashboards, `repos.html` the comparison
-with the reference projects.
+door (one key field - the key names its own role), `index.html` the minter,
+`chat.html` the API's face, `partner.html`, `user.html` and `admin.html` the three
+dashboards, `repos.html` the comparison with the reference projects.
 
 ## Four ideas that explain most of the code
 
@@ -69,8 +69,8 @@ a state file silently lose each other's people.
 ## What is proven
 
 `npm run check` — nine suites plus the doctor's self-test, all exit 0. Five are
-behavioural and carry **347 assertions** (71 hub, 113 config, 9 multi-partner,
-97 chat, 57 people); the rest check structure and documentation.
+behavioural and carry **350 assertions** (73 hub, 113 config, 9 multi-partner,
+98 chat, 57 people); the rest check structure and documentation.
 
 The ones worth knowing about:
 

@@ -85,13 +85,11 @@ a realistic delay. Errors are `GLMError(message, code)` so `minter.js` can send
 `kind:'upstream'` with a code.
 
 **roles.js**. Page entrypoints: `mountLogin()`, `mountPartner()`. `mountLogin`
-reads `?next=`, reveals a key box for partner/admin/superadmin, `signIn(role,
-key)` → `POST /session {role, key}` → on 200 remembers the role in
-`localStorage['glm2api.role']` and navigates to `loginNext(HOME[role])`. The role
-cards are `<a>` elements, so the click handler calls `preventDefault()` first —
-without it the browser follows the href, the hub bounces back to `login.html`,
-and the key box never appears (that was a real bug; `check-html.mjs` trips on
-the line going missing).
+is one key field and no role list: `signIn(key)` → `POST /session {key}` (no
+role - the hub resolves it from the key), and on 200 it remembers `d.role` in
+`localStorage['glm2api.role']` and navigates to `loginNext(HOME[d.role])`. An
+empty key is the open `user` session; the "continue without one" link calls the
+same path. `check-html.mjs` fails if `login.html` names a role again.
 `mountPartner` posts the token form to `/tokens`, then polls `/tokens` and
 `/tokens?mine=1` for contribution counts and per-donation statuses. It also
 carries the compact "contribute an upstream token" block

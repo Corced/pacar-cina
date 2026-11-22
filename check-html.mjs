@@ -47,17 +47,17 @@ for (const name of readdirSync(dist).filter((f) => f.endsWith('.html'))) {
   if (problems) bad += problems;
 }
 
-// The role cards on the front door are <a> elements that a script takes over:
-// without preventDefault the browser follows the href to a gated page, the hub
-// bounces it back to this same page, and the key box never appears — so a
-// partner or admin cannot sign in from the browser at all. That was a real bug.
-// There is no DOM in this suite, so this is a source tripwire, not a click:
-// ponytail: static string check; the browser run that proved the flow is in
-// HANDOFF.md, and only a headless browser would make this behavioural.
-const rolesSrc = readFileSync(join(dist, 'roles.js'), 'utf8');
-if (!rolesSrc.includes('ev.preventDefault()')) {
-  console.log('roles.js: the role cards no longer stop the link before showing the key box');
-  bad++;
+// The sign-in page is one key field and no role list. A page that lists the
+// roles tells every visitor how many exist and what each may do; the key already
+// names its role, so the hub resolves it (POST /session with {key} and no role).
+// This is a source tripwire, and the disclosure came back once already as a
+// capability table, which no functional test would notice.
+const loginSrc = readFileSync(join(dist, 'login.html'), 'utf8');
+for (const leak of ['data-role', 'id="roles"', 'partner', 'admin', 'superadmin', 'GLM_KEYS']) {
+  if (loginSrc.includes(leak)) {
+    console.log(`login.html: the sign-in page discloses "${leak}" - it is meant to name no roles`);
+    bad++;
+  }
 }
 
 // ── every id a script reads has to exist somewhere ──────────────────────────
