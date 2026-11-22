@@ -47,7 +47,12 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, '..', 'public');
 
 const PORT = Number(process.env.PORT || 5082);
-const HOST = process.env.HOST || '127.0.0.1';
+/* Loopback in development, so nothing is exposed by accident on a laptop. In
+ * production every interface, because a container's router and health check
+ * reach the process from outside 127.0.0.1 and would otherwise see nothing
+ * listening. HOST always wins when set. */
+const HOST = process.env.HOST
+  || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const FE_VERSION = process.env.FE_VERSION || 'prod-fe-1.1.79';
 
 /* ── deployment config ─────────────────────────────────────────────────────
@@ -162,6 +167,15 @@ function requestScheme(req) {
     if (proto) return proto + '://';
   }
   return (req.socket && req.socket.encrypted ? 'https://' : 'http://');
+}
+
+/* Whether the session cookie may carry `Secure`. A cookie marked Secure on a
+ * plain-http deployment is never sent back, so this has to follow the scheme the
+ * browser sees, not the scheme the socket is: behind TLS termination the socket
+ * is http and X-Forwarded-Proto (trusted) says https. */
+function cookieSecure(req) {
+  if (PUBLIC_URL_OVERRIDE) return /^https:/i.test(PUBLIC_URL_OVERRIDE);
+  return requestScheme(req) === 'https://';
 }
 
 /* The host the page was reached at: the override if given, otherwise the
@@ -2196,9 +2210,11 @@ const server = createServer(async (req, res) => {
     const cookie = issueSession(role, identity);
     // httpOnly: the page does not need to read it, and scripts shouldn't.
     // SameSite=Lax: fine for a same-origin socket handshake.
+    // Secure only when the browser is on https - see cookieSecure().
     res.setHeader('set-cookie',
       'glm_sid=' + encodeURIComponent(cookie) + '; HttpOnly; SameSite=Lax; Path=/; Max-Age='
-        + Math.max(60, Math.floor(SESSION_TTL_MS / 1000)));
+        + Math.max(60, Math.floor(SESSION_TTL_MS / 1000))
+        + (cookieSecure(req) ? '; Secure' : ''));
     log('session issued for role ' + role
       + (identity ? ' as person ' + identity : '')
       + (needsKey(role) ? ' (key accepted)' : ' (open role)'));

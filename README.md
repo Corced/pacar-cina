@@ -11,11 +11,14 @@ code, no logos, no long passages.
 
 Written and maintained by **Corced**.
 
-**Taking over the project?** Read [`HANDOFF.md`](HANDOFF.md) first — it explains
-the system in one pass, states what is proven and what is not, and lists the
-traps that have already caught someone. This file is the reference: every route,
-every setting, the protocol in full. If you only want to start it and poke at it,
-[`INSTRUCTION.md`](INSTRUCTION.md) is the one-page operator guide.
+**Taking over the project?** [`START-HERE.md`](START-HERE.md) is the shortest
+orientation: the shape of the system, the four ideas that explain the code, what
+is proven, and a separate table of the gaps that need a person (a credential, a
+real browser, half an hour) rather than a commit. Then
+[`HANDOFF.md`](HANDOFF.md) — it states what is proven and what is not, and lists
+the traps that have already caught someone. This file is the reference: every
+route, every setting, the protocol in full. If you only want to start it and poke
+at it, [`INSTRUCTION.md`](INSTRUCTION.md) is the one-page operator guide.
 
 ---
 
@@ -231,7 +234,9 @@ state file belongs outside the repo for the same reason.
 
 | Variable                          | Default                                           | Meaning                                                                                                                                                                                                                                                        |
 | --------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                            | `5082`                                            | listen port (`127.0.0.1`)                                                                                                                                                                                                                                      |
+| `PORT`                            | `5082`                                            | listen port                                                                                                                                                                                                                                                    |
+| `HOST`                            | `127.0.0.1` (`0.0.0.0` when `NODE_ENV=production`) | listen interface. Loopback by default so a laptop exposes nothing; a container needs `0.0.0.0`, or the platform's router and health check reach nothing while the process looks healthy                                                                         |
+| `NODE_ENV`                        | —                                                 | `production` binds `0.0.0.0` unless `HOST` says otherwise; it changes nothing else                                                                                                                                                                             |
 | `GLM_KEYS`                        | — (keys generated)                                | `partner:secret,admin:secret,superadmin:secret`; other role names are ignored                                                                                                                                                                                  |
 | `GLM_SUPERADMIN`                  | - (key generated, printed once)                   | the seeded superadmin's key; pinning it is one way to survive a restart - the state file is the other                                                                                                                                                           |
 | `GLM_SUPERADMIN_NAME`             | `root`                                            | the seeded superadmin's name, which rides on its sessions and donations                                                                                                                                                                                        |
@@ -270,6 +275,28 @@ state file belongs outside the repo for the same reason.
 | `GLM_PUBLIC_URL`                  | — (derived from the request)                      | the address this hub is reached at, e.g. `https://glm.example.com`; set it when a reverse proxy or tunnel hides the real name, and every page, snippet and `/config` answer uses it                                                                            |
 | `GLM_TRUST_PROXY`                 | `0`                                               | set `1` behind a reverse proxy so `X-Forwarded-Host`/`-Proto` are believed; leave it off when exposed directly, or a visitor can make the panel print an address of their choosing                                                                             |
 | `GLM_IP_LOOKUP_URL`               | `https://api.ipify.org?format=json`               | where the pages look up a visitor's public IP; point it at your own service when that third party is unreachable, or set it empty to stop looking up at all                                                                                                    |
+
+### Deploying it
+
+**One always-on process, one replica, one volume.** The partner sockets, sessions,
+minted pool, chat ledger and contributed upstream tokens all live in that
+process's memory, so a second replica behind a load balancer would split them
+between two hubs — sticky sessions do not help, because `/minter/ws` is a
+long-lived upgrade. That rules out serverless (no long-lived listener, no
+WebSocket upgrades, no `setInterval` sweeps) and rolling deploys that overlap.
+
+A `Dockerfile` is in the repo: `docker build -t glm2api . && docker run -p 5082:5082 -v glmdata:/data -e GLM_STATE_FILE=/data/state.json -e GLM_KEYS=admin:<key> glm2api`.
+`npm start` runs the same command the image does. `npm run build` is **not**
+part of deploying — it only makes a static copy of `public/` in `dist/`; the hub
+serves `public/` directly.
+
+Behind the platform's TLS and router, set `GLM_TRUST_PROXY=1` (so
+`X-Forwarded-*` are believed and per-caller limits key on the real address rather
+than the proxy's) and `GLM_PUBLIC_URL=https://…` (so `/config`, snippets and
+`/status` name the outside address). The session cookie gains `Secure` by itself
+whenever the request arrives as https. Expect every restart to sign everyone
+out: the session rows are in memory, so `SESSION_SECRET` only keeps the
+signature stable, not the sessions.
 
 ### Model ids
 
@@ -447,12 +474,16 @@ app/
 │   └── role.css
 ├── server/
 │   ├── hub.mjs        the backend (one file, no dependencies)
-│   └── ws.mjs         hand-written RFC 6455 WebSocket server
+│   ├── ws.mjs         hand-written RFC 6455 WebSocket server
+│   └── socks5.mjs     hand-written SOCKS5 client for routed chat calls
 ├── dist/              build output (static files only — server code never reaches it)
 ├── .repos/            downloaded reference archives (research material, not published)
 ├── build.mjs          copies public/ → dist/, fails if server code would leak into dist/
 ├── check-*.mjs        the check suites
 ├── doctor.mjs         what is still open and the command that closes it (live: one real call)
+├── Dockerfile         one always-on image; .dockerignore keeps .env and dist out
+├── START-HERE.md      orientation: the shape, the ideas, what needs a person
+├── HANDOFF.md         the evidence ledger: proven, closed, open, traps
 └── README.md          this file
 ```
 

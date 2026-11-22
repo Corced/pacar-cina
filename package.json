@@ -5,7 +5,11 @@
   "type": "module",
   "description": "glm2api captcha minter page — clean-room rebuild",
   "author": "Corced",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
+    "start": "node server/hub.mjs",
     "build": "node build.mjs",
     "hub": "node server/hub.mjs",
     "hub:env": "node --env-file=.env server/hub.mjs",

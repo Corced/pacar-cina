@@ -43,11 +43,13 @@ jobs, donations and the chat ledger never do). `HANDOFF.md` is the authoritative
 | `README.md` | the reference manual — routes, env vars with defaults, mint protocol, model ids, what is deliberately not done |
 | `HANDOFF.md` | orientation note: what works, what does not, and the traps that have already bitten someone |
 | `INSTRUCTION.md` | one-page operator guide: first run, the pages, the checks, and what to watch for |
-| `package.json` | zero-dependency manifest + scripts: `build`, `hub`, `check` |
+| `package.json` | zero-dependency manifest + scripts: `start`, `build`, `hub`, `check` |
+| `START-HERE.md` | the orientation page: the shape of the system, the four ideas behind the code, what is proven, and which gaps need a person rather than a commit |
 | `build.mjs` | copies `public/` → `dist/`; **fails** if any server code would land in `dist/` or a required page is missing |
 | `server/hub.mjs` | the whole backend (see `server/codemap.md`) |
 | `server/ws.mjs` | hand-written RFC 6455 WebSocket server |
 | `server/socks5.mjs` | hand-written SOCKS5 client: CONNECT over a route, `forward()` for the routed chat call |
+| `Dockerfile` | one always-on image (`node:22-alpine`, `NODE_ENV=production`, a `/data` volume); `.dockerignore` keeps `node_modules`, `dist` and `.env` out of it |
 | `public/` | the entire published site (see `public/codemap.md`) |
 | `dist/` | build output — generated, never edit |
 | `.repos/` | downloaded reference-project archives (research material, never published) |

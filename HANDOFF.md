@@ -3,6 +3,11 @@
 Everything you need to pick this up without reading the whole `app/` tree.
 Written for someone who did not build it. Maintained by **Corced**.
 
+**New here? Read [`START-HERE.md`](START-HERE.md) first** — the orientation pass:
+the shape of the system, the four ideas that explain the code, and a separate
+table of the gaps that need a person rather than a commit. This note is the
+evidence behind it.
+
 - What the project is: the next section.
 - **Honest status:** [What actually works](#what-actually-works) and
   [What is not done](#what-is-not-done-yet) — read those two before trusting
@@ -367,7 +372,7 @@ reports what this machine already has (an upstream, a key, a state file), and
 prints the next command. With `GLM_UPSTREAM` and `GLM_UPSTREAM_KEY` set,
 `node doctor.mjs live` starts its own hub on a spare port, makes one real call,
 prints `PROVEN` (or the exact status and body that refused it), and kills the
-hub — the mechanical half of gaps 1, 3 and 7 without curl or a cookie jar.
+hub — the mechanical half of gaps 1, 3 and 5 without curl or a cookie jar.
 Everything it prints is a probe, not a closure: the record below still decides.
 
 **How to record a closure.** When a runbook passes, add the date, the exact
@@ -667,7 +672,7 @@ Nine suites and the doctor's self-test, all must exit 0:
 | `check-config.mjs`    | 113                  | env-driven config, deployment addressing, role separation, server-side session expiry, the chat page, a pool that survives a restart |
 | `check-chat.mjs`      | 97                   | forwarding, request signing, pool spend and refund, feature defaults, empty-pool labelling, the per-caller 429, the model rule, the conversation tracer, the contributed-key gate, SOCKS5 routing and its labelled fallback |
 | `check-people.mjs`    | 57                   | create / revoke / rotate, live sessions and sockets dropped, the state file, hashing at rest, the seeded superadmin across a restart, a v1 file upgraded |
-| `check-docs.mjs`      | 20                   | this note and the README against the tree: settings, paths, stale claims, the gap-list floor, the .env template |
+| `check-docs.mjs`      | 27                   | this note, the README and the newcomer page against the tree: settings, paths, stale claims, the gap-list floor, the .env template, counts that must agree |
 | `doctor.mjs --self-test` | 9                | the report reads this note honestly: gap count, a closing step per gap, a key never printed, 200 the only "proven" |
 
 `check-chat.mjs` starts its own local stub for the upstream, so the whole chat
@@ -702,6 +707,8 @@ public/roles.js       shared browser helpers: IP, sign-in, notes, logging.
 public/repos.html     the three reference projects, dissected.
 public/minter.css     the original's design tokens; also the nav bar's styles.
 check-*.mjs           the suite.
+START-HERE.md         the orientation page (read before this note).
+Dockerfile            one always-on image; .dockerignore keeps secrets out of it.
 .repos/               downloaded reference sources — never published.
 ```
 

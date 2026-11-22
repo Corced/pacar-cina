@@ -38,9 +38,9 @@ for (const heading of ['What this is', 'What actually works', 'What is not done 
 /* ── every setting it names must exist in the hub ── */
 // SETTINGS are the upper-case names the note talks about as knobs. A name in
 // the note that the hub has never heard of would send a reader nowhere.
-const named = [...note.matchAll(/\b((?:GLM|SESSION|TOKEN|FE|PORT)_[A-Z0-9_]+|PORT|FE_VERSION)\b/g)]
-  .map((m) => m[1]);
-const settings = [...new Set(named)].sort();
+const SETTING = /\b((?:GLM|SESSION|TOKEN|FE|PORT)_[A-Z0-9_]+|PORT|FE_VERSION)\b/g;
+const namedSettings = (text) => [...new Set([...text.matchAll(SETTING)].map((m) => m[1]))].sort();
+const settings = namedSettings(note);
 check(settings.length >= 5, 'the note names the settings it relies on',
   settings.length + ' named');
 const unknown = settings.filter((s) => !hub.includes(s));
@@ -98,6 +98,40 @@ check(note.toLowerCase().includes('hiding a link is not access control'),
 const closers = (note.match(/Close (?:it|them) by:/g) || []).length;
 check(closers >= 5, 'most gaps name what would close them',
   closers + ' closing hints for ' + numbered + ' gaps');
+
+/* ── the newcomer page must not drift from the ledger ──
+ * START-HERE.md is the first thing a reader opens, and it repeats two facts the
+ * note already owns: which gaps are open, and how many assertions the suites
+ * carry. Both are checked here, so closing a gap or re-counting a suite cannot
+ * leave the introduction quietly wrong. */
+const startHere = existsSync(join(root, 'START-HERE.md'))
+  ? readFileSync(join(root, 'START-HERE.md'), 'utf8') : '';
+check(startHere.length > 2000, 'the newcomer page exists and is substantial',
+  startHere.length + ' bytes');
+check(readme.includes('START-HERE.md') && note.includes('START-HERE.md'),
+  'the README and the note both point at the newcomer page');
+
+const startSettings = namedSettings(startHere);
+const stranger = startSettings.filter((s) => !hub.includes(s));
+check(stranger.length === 0, 'every setting the newcomer page names exists in the hub',
+  stranger.length ? 'unknown: ' + stranger.join(', ') : startSettings.length + ' settings verified');
+
+const ledger = note.match(/(\d+) assertions:\s*(\d+) hub,\s*(\d+) config,\s*(\d+) multi-partner,\s*(\d+) chat,\s*(\d+) people/);
+check(Boolean(ledger), 'the note states its assertion counts in one line');
+if (ledger) {
+  const [, total, hubN, configN, multiN, chatN, peopleN] = ledger;
+  const flat = startHere.replace(/\s+/g, ' ');
+  const phrase = hubN + ' hub, ' + configN + ' config, ' + multiN + ' multi-partner, '
+    + chatN + ' chat, ' + peopleN + ' people';
+  check(flat.includes(phrase), 'the newcomer page repeats the per-suite counts', phrase);
+  check(flat.includes(total + ' assertions'), 'the newcomer page repeats the total',
+    total + ' assertions');
+}
+
+const openGaps = [...note.matchAll(/^### (\d+)\. /gm)].map((m) => m[1]);
+const unlisted = openGaps.filter((n) => !startHere.includes('| ' + n + ' |'));
+check(unlisted.length === 0, 'the newcomer page lists every open gap',
+  unlisted.length ? 'missing: ' + unlisted.join(', ') : openGaps.length + ' gaps');
 
 console.log(failures === 0
   ? 'docs check: the hand-off note matches the code'
