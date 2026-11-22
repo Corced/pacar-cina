@@ -93,7 +93,11 @@ without it the browser follows the href, the hub bounces back to `login.html`,
 and the key box never appears (that was a real bug; `check-html.mjs` trips on
 the line going missing).
 `mountPartner` posts the token form to `/tokens`, then polls `/tokens` and
-`/tokens?mine=1` for contribution counts and per-donation statuses. `noHub()`
+`/tokens?mine=1` for contribution counts and per-donation statuses. It also
+carries the compact "contribute an upstream token" block
+(`POST /upstream/keys` and `/upstream/keys/revoke`, rows from
+`/status/self.myKeys`): the input is `type="password"`, cleared on success, and
+nothing about it is stored anywhere. `noHub()`
 probes `/status/self` so the page can say whether a hub is actually there
 (200 signed in, 401 hub without a session, anything else static) instead of
 always claiming there is none.
@@ -112,7 +116,9 @@ The transcript is memory only.
 `visibilitychange`; renders `you` (address as the hub observed it, whether a
 minter socket from it is connected, captchas that address returned) and
 `poolNow` (tokens/in-flight/online/minted/failed). A failed poll blanks every
-figure rather than leaving the previous one up.
+figure rather than leaving the previous one up. It carries the same compact
+"contribute an upstream token" block as the partner page — the one contribution
+every signed-in role can make.
 
 **All six scripts are JSDoc-typed.** Each opens with `// @ts-check` and a
 `@typedef` for the wire shape it reads (`Turn`/`CatalogModel`/`Exchange` in
@@ -139,7 +145,14 @@ and `personAction()` post the mutations and show a new key exactly once;
 `applyRoleGates()` disables the create controls for a plain admin;
 `refreshDonations()` reads `/tokens?all=1`; toggles `POST /features`; the
 clear-sessions button posts `/admin/session/clear`; `wrongRoleNote()` surfaces
-`?wrongrole=`.
+`?wrongrole=`. Two panels were rewritten when the backend stopped pretending:
+the **shared upstream tokens** panel renders `d.upstreamKeys` (counts, then rows
+with health and a Revoke button; `contributeKey()` posts `/upstream/keys` and
+prints the gate's own `checks` lines verbatim, clearing the password input on
+success), and the **egress** panel is read-only from `d.egress` — mode, routes,
+dead, the hub's `note`, and `lastError` in the warning colour. The four old
+`[data-egress]` switches that flipped a label and posted nothing are gone;
+`direct` renders neutral on purpose, because it is a state, not a fault.
 
 **Pages.** `login.html`, `partner.html` and `user.html` are script-mounted
 (`ROLES.mountLogin()`/`ROLES.mountPartner()`/`USER.mount()` inline after the

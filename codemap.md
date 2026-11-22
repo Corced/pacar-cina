@@ -30,8 +30,10 @@ sockets all stop at once — with the directory kept in `GLM_STATE_FILE` so a
 revocation survives a restart. Not done, and stated as such in the UI and in
 `HANDOFF.md`: no call to the real chat.z.ai / chatglm.cn has succeeded (the path
 is proven against a local stub), a real widget mint has never been captured,
-egress routing is a toggle, and everything except the people directory is still
-in memory on purpose. `HANDOFF.md` is the authoritative honest-status document;
+egress routing is a toggle, and everything except the people directory and the
+minted-token pool is still in memory on purpose (minted params are single-use
+Aliyun answers, so they may sit in `GLM_STATE_FILE` until they expire; sessions,
+jobs, donations and the chat ledger never do). `HANDOFF.md` is the authoritative honest-status document;
 `README.md` is the reference (every route, every setting, the protocol in full).
 
 ## Root assets
@@ -45,6 +47,7 @@ in memory on purpose. `HANDOFF.md` is the authoritative honest-status document;
 | `build.mjs` | copies `public/` → `dist/`; **fails** if any server code would land in `dist/` or a required page is missing |
 | `server/hub.mjs` | the whole backend (see `server/codemap.md`) |
 | `server/ws.mjs` | hand-written RFC 6455 WebSocket server |
+| `server/socks5.mjs` | hand-written SOCKS5 client: CONNECT over a route, `forward()` for the routed chat call |
 | `public/` | the entire published site (see `public/codemap.md`) |
 | `dist/` | build output — generated, never edit |
 | `.repos/` | downloaded reference-project archives (research material, never published) |
@@ -86,7 +89,7 @@ Three flows carry the system, each written out as an arrow trace in
 | Change a page's behaviour | `public/codemap.md` for the page→script→route table |
 | Change the mint protocol | `server/hub.mjs` `onMinterSocket` **and** `public/minter.js` — the two must move together |
 | Change the captcha widget config | `GET /config` in the hub *and* `glm-client.js loadConfig()` |
-| Verify anything | `npm run check` (nine suites + the doctor's self-test, 300 counted assertions) - see `HANDOFF.md` "Verifying" |
+| Verify anything | `npm run check` (nine suites + the doctor's self-test, 347 counted assertions) - see `HANDOFF.md` "Verifying" |
 
 ## Traps (from `HANDOFF.md`, still true)
 

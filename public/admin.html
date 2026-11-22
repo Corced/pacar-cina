@@ -183,25 +183,71 @@
       only a <b>scrypt</b> hash of each is kept — in memory, and in <b>GLM_STATE_FILE</b> when one is set.</div>
     </div>
 
-    <!-- ── Egress: proxies + Tor, the new class ── -->
+    <!-- ── Egress: read-only, because the mode and the routes come from the hub's
+         environment. This page cannot change them, so it does not pretend to. ── -->
     <div class="card">
       <h2>Egress</h2>
-      <div class="kv"><span class="k">Direct</span><span class="tog on" data-egress="direct">ON</span></div>
-      <div class="kv"><span class="k">Proxy pool</span><span class="tog off" data-egress="proxy">OFF</span></div>
-      <div class="kv"><span class="k">Tor</span><span class="tog off" data-egress="tor">OFF</span></div>
-      <div class="kv"><span class="k">Partner browsers</span><span class="tog on" data-egress="partners">ON</span></div>
-      <div class="kv"><span class="k">Dead proxy TTL</span><span class="v mono">10 min</span></div>
-      <div class="fld" style="margin-top:12px">
-        <label for="e-proxy">Proxy list — one per line</label>
-        <textarea class="ta" id="e-proxy" spellcheck="false">http://user:pass@proxy.example.com:8080
-socks5://127.0.0.1:1080</textarea>
+      <div class="kv"><span class="k">Mode</span><span class="v"><span class="pill" id="e-mode">—</span></span></div>
+      <div class="kv"><span class="k">Routes configured</span><span class="v" id="e-routes">—</span></div>
+      <div class="kv"><span class="k">Routes dead right now</span><span class="v" id="e-dead">—</span></div>
+      <div class="note" id="e-note">No hub read yet, so nothing here was measured.</div>
+      <div class="warnbox" id="e-err" hidden style="margin:8px 0 0"></div>
+      <div class="note">Routed: <b>/v1/chat/completions</b> and the upstream-key probe. Never routed:
+      <b>POST /captcha/verify</b>, the donation exchange, and every local route on this hub.</div>
+      <div class="note">Routes are the hub's environment, not this page:
+      <span class="mono">GLM_EGRESS_ROUTES=host:port[,host:port…]</span> plus
+      <span class="mono">GLM_EGRESS_MODE=direct|proxy|tor</span>. A <b>127.0.0.1</b> entry means a proxy
+      on the machine running the hub — not on the laptop you are reading this from. A route that fails a
+      handshake is held dead for <span class="mono">GLM_EGRESS_DEAD_MS</span> and retried after, while a
+      chat call falls back to direct and labels itself <span class="mono">direct-fallback</span>.</div>
+    </div>
+
+    <!-- ── Shared upstream tokens: contributed bearer tokens, memory only ── -->
+    <div class="card span-all">
+      <h2>Shared upstream tokens</h2>
+      <div class="kv"><span class="k">Held</span><span class="v" id="uk-total">—</span></div>
+      <div class="kv"><span class="k">By source</span><span class="v mono" id="uk-sources">—</span></div>
+      <div class="kv"><span class="k">Uses across rows</span><span class="v" id="uk-uses">—</span></div>
+      <div class="kv"><span class="k">Environment key</span><span class="v" id="uk-env">—</span></div>
+      <div class="kv">
+        <span class="k">Health</span>
+        <span class="v">
+          <span class="pill ok" id="uk-ok">ok 0</span>
+          <span class="pill info" id="uk-unverified" style="margin-left:6px">unverified 0</span>
+          <span class="pill bad" id="uk-dead" style="margin-left:6px">dead 0</span>
+          <span class="pill bad" id="uk-refused" style="margin-left:6px">refused 0</span>
+        </span>
       </div>
-      <div class="note">Format: <span style="font-family:monospace">scheme://[user:pass@]host:port</span>,
-      one per line (http, https or socks5). A <b>127.0.0.1</b> entry means a proxy on the
-      machine running the hub — not on the laptop you are reading this from.</div>
-      <div class="note">The reference projects keep captcha traffic direct and only rotate proxies for chat
-      requests, because the captcha widget breaks behind some proxies. <b>Tor</b> is added here as a fourth
-      class, since a Tor exit is itself a shared, already-flagged IP.</div>
+      <div class="note mono" id="uk-storage" style="margin-top:0;margin-bottom:6px">—</div>
+      <div class="scroll-x">
+        <table class="tbl">
+          <thead><tr><th>Id</th><th>Source</th><th>Contributor</th><th>Uses</th><th>Last used</th><th>Health</th><th></th></tr></thead>
+          <tbody id="uk-body"><tr><td colspan="7" style="color:var(--mut)">no hub read yet — showing shape only</td></tr></tbody>
+        </table>
+      </div>
+      <form class="uk-form" id="uk-form" autocomplete="off" style="margin-top:12px">
+        <div class="row">
+          <select class="in uk-src" id="uk-source" aria-label="which upstream the token is for">
+            <option value="z.ai">z.ai</option>
+            <option value="cn">cn</option>
+          </select>
+          <input class="in uk-key" id="uk-key" type="password" autocomplete="off" spellcheck="false"
+                 placeholder="paste a bearer token — it is never shown again">
+          <button class="btn primary" id="uk-add" type="submit">Contribute</button>
+        </div>
+      </form>
+      <div class="uk-say" id="uk-say" role="status" aria-live="polite"></div>
+      <div class="note"><b>Health</b> is what the gate could prove, nothing more. <b>ok</b>: one bounded
+      probe (5 s) got a 2xx from the upstream, so it accepted the token. <b>unverified</b>: not yet proven
+      — either no upstream is configured to probe, or the probe answered something that says nothing about
+      the token; it is never a claim that the token works. <b>dead</b>: the upstream throttled it (429), so
+      it is skipped for 10 minutes. <b>refused</b>: the upstream rejected it (401/403) — a refused token is
+      never stored as a row, so that counter stays 0 and the gate's answer appears in the notice above.</div>
+      <div class="note">A token is memory only. The hub holds it, spends it on anyone's chat call in place of
+      <b>GLM_UPSTREAM_KEY</b>, and never writes it to the state file, the log or any response: <b>GET
+      /upstream/keys</b> lists metadata, never the value, and <b>POST /upstream/keys/revoke</b> drops a row
+      from memory at once. The form's answer above is the gate's own output, quoted — shape, claims, duplicate
+      and probe, in the order it ran them.</div>
     </div>
 
     <!-- ── Endpoints ── -->
@@ -331,8 +377,11 @@ socks5://127.0.0.1:1080</textarea>
             </tr>
             <tr>
               <td>Tor egress</td>
-              <td><span class="pill bad">missing</span></td>
-              <td>Only a toggle exists. Needs a SOCKS5 client, circuit rotation and a policy for when to use it over direct.
+              <td><span class="pill warn">relay only</span></td>
+              <td>A Tor SOCKS5 port is just another route: used round-robin, marked dead on a failed
+              handshake, labelled <b>tor</b> in <b>x-glm-egress</b>. Nothing here speaks the Tor control
+              protocol and nothing rotates a circuit, so the exit is only as fresh as the local daemon's
+              choice — which needs a control-port client before it can be called circuit rotation.
               <br><b>Reference:</b> none of the three has Tor, so there is nothing to copy. The nearest pattern is <a href="repos.html#d3vin"><b>D3-vin</b></a>'s WAF proxy rotation with a 10-minute dead-proxy timeout — the same bookkeeping (mark a route dead, stop using it, retry elsewhere) applies to circuits, and its <i>proxy.txt</i> one-address-per-line format is a sane shape for a circuit list.</td>
             </tr>
             <tr>
@@ -402,9 +451,11 @@ socks5://127.0.0.1:1080</textarea>
           <li><b>Nothing spends a token</b> — entries are donated, verified and expired, but the only
           thing that would spend one is a working upstream, which is the first gap. <b>Close it by</b>
           closing that one.</li>
-          <li><b>Egress routing</b> — the switch is remembered and does nothing, because routing a
-          request through someone else's connection needs a proxy or Tor client that is not written.
-          <b>Close it by</b> adding a SOCKS5 client and a rotation policy.</li>
+          <li><b>Egress routing</b> — a hand-written SOCKS5 client tunnels the chat forward and the
+          upstream-key probe through the routes in <b>GLM_EGRESS_ROUTES</b>, round-robin, and each chat
+          response says which one carried it in <b>x-glm-egress</b>. Captcha verification and the donation
+          exchange stay direct, because the widget breaks behind a proxy. <b>Watch it by</b> reading the
+          egress panel: a route that fails a handshake is held dead for <b>GLM_EGRESS_DEAD_MS</b>.</li>
         </ul>
         Everything else on this page — keys, sessions, the page gate, the mint socket, the even
         spread, expiry and refill, donation verification, the model catalog — is exercised by

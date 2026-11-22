@@ -41,6 +41,7 @@ import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from
 import { join, extname, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { acceptKey, attachSocket, newId } from './ws.mjs';
+import { forward } from './socks5.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, '..', 'public');
@@ -209,6 +210,54 @@ const UPSTREAM = {
   key: process.env.GLM_UPSTREAM_KEY || '',
   timeoutMs: Number(process.env.GLM_UPSTREAM_TIMEOUT || 30000),
 };
+
+/* ── egress routing ────────────────────────────────────────────────────────
+ * GLM_EGRESS_ROUTES=host:port[,host:port…] — SOCKS5 endpoints a chat call may
+ * be tunnelled through, tried round-robin. Empty (the default) means no routes
+ * and every call goes direct, exactly as before: routing is a thing the
+ * operator turns on, not a behaviour that can leak in from a stray variable.
+ *
+ * GLM_EGRESS_MODE=direct|proxy|tor decides whether routing happens at all and
+ * what it is called. `direct` forces it off even when routes are configured;
+ * `proxy` and `tor` use the same hand-written client and differ only in the
+ * label, because a Tor circuit is a SOCKS5 endpoint like any other — nothing
+ * here speaks the Tor control protocol, so claiming more would be a lie.
+ *
+ * A route whose handshake fails is skipped for GLM_EGRESS_DEAD_MS (60 s), the
+ * same dead-proxy bookkeeping the reference projects use, then retried.
+ */
+const EGRESS_DEAD_MS = Math.max(0, Number(process.env.GLM_EGRESS_DEAD_MS || 60000) || 0);
+const EGRESS_ROUTES = String(process.env.GLM_EGRESS_ROUTES || '')
+  .split(',').map((s) => s.trim()).filter(Boolean)
+  .map((entry) => {
+    const cut = entry.lastIndexOf(':');
+    const host = cut > 0 ? entry.slice(0, cut).replace(/^\[|\]$/g, '').trim() : '';
+    const port = Number(cut > 0 ? entry.slice(cut + 1) : '');
+    return host && Number.isInteger(port) && port > 0 && port < 65536
+      ? { host, port, deadUntil: 0 }
+      : null;
+  })
+  .filter(Boolean);
+const EGRESS_MODE = (() => {
+  const asked = String(process.env.GLM_EGRESS_MODE || '').trim().toLowerCase();
+  if (asked === 'direct' || asked === 'proxy' || asked === 'tor') {
+    return asked === 'direct' || !EGRESS_ROUTES.length ? 'direct' : asked;
+  }
+  return EGRESS_ROUTES.length ? 'proxy' : 'direct';
+})();
+
+/* The shared pool of upstream bearer tokens. GLM_UPSTREAM_KEY is the operator's
+ * credential; a token contributed through POST /upstream/keys is anybody's, and
+ * the chat path prefers a live pool token over the env key. Two sources, because
+ * a token only works against the upstream it was issued by. */
+const UPSTREAM_KEY_SOURCES = ['z.ai', 'cn'];
+/* How long a token the upstream refused is held before it is tried again: long
+ * enough that a refusal is not re-spent on every poll, short enough that a
+ * token that was only throttled comes back on its own. */
+const UPSTREAM_KEY_DEAD_MS = 10 * 60 * 1000;
+/* The gate's one live probe. Bounded so a contributed token cannot hold the
+ * contribution open for the whole request timeout. */
+const UPSTREAM_KEY_PROBE_MS = 5000;
 
 /* Per-caller limit on chat: at most CHAT_CONCURRENCY requests in flight for one
  * identity, and after a refusal that identity waits CHAT_COOLDOWN_MS before it
@@ -401,8 +450,10 @@ function resolveModel(rawId) {
 
 
 /* ── state ────────────────────────────────────────────────────────────────
- * In memory on purpose: there is no database, and pretending otherwise by
- * writing a file with credentials in it would be worse. Restart = empty pool. */
+ * No database: config is a constant layer and the people directory plus the
+ * minted-token pool live in one JSON file when GLM_STATE_FILE is set. Sessions,
+ * jobs, chats and in-flight counters stay right here — a restart is meant to
+ * drop them, and a file with credentials in it would be worse than one without. */
 
 const state = {
   started: Date.now(),
@@ -413,6 +464,13 @@ const state = {
   consumed: 0,
   expired: 0,
   tokens: [],                   // pool entries: {id, at, expiresAt, partnerId, size}
+  /* Contributed upstream bearer tokens, hash -> {id, source, key, addedBy, at,
+   * uses, lastUsed, health, fails, deadUntil, jwt, sub}. Memory only and
+   * deliberately never in saveState()/the state file: a single-use captcha param
+   * may sit on disk, an account credential may not — a copy of the file would be
+   * a set of working accounts. The token is never logged, echoed or returned;
+   * every response carries the 8-char id only. */
+  upstreamKeys: new Map(),
   donated: [],                  // partner-donated tokens/sessions, with verification status
   donatedSeq: 0,
   donateThrottled: 0,           // donations refused because that caller was already verifying
@@ -430,7 +488,14 @@ const state = {
     enable_thinking: true,
     preview_mode: false,
   },
-  egress: { direct: true, proxy: false, tor: false, partners: true },
+  /* Where outbound chat traffic goes, and the single object /status and the
+   * panel read. `mode` is the whole truth: 'direct' means nothing is routed
+   * (no routes, or GLM_EGRESS_MODE=direct); 'proxy'/'tor' mean each chat call
+   * picks a live route in turn. `routes`/`dead` are counts, `lastError` is the
+   * last routing failure, and `note` says in words what routes and what stays
+   * direct. Never claim routing a call did not get: the per-response label is
+   * x-glm-egress, not this object. */
+  egress: { mode: EGRESS_MODE, routes: EGRESS_ROUTES.length, dead: 0, lastError: null, note: '' },
   models: ['glm-4.7', 'glm-4.6', 'glm-5v-turbo'],
   sessions: new Map(),          // sid -> {role, created, lastSeen}
   expiredSessions: 0,           // sign-ins that aged out, counted not dropped
@@ -460,12 +525,14 @@ function isAdminish(role) { return ADMINISH.has(role); }
 const KEY_ROLES = ['partner', 'admin', 'superadmin'];
 
 /* ── the "database": one JSON document, and it never holds a key ───────────
- * There is no server and no schema here on purpose — the people directory and
- * the seeded superadmin live in one file, rewritten on every change. A key is
- * stored as a scrypt hash with a per-person salt, so a leaked copy is a list of
- * names rather than a set of working credentials. Keys that come from the
- * environment (GLM_KEYS, GLM_PEOPLE, GLM_SUPERADMIN) are the operator's own
- * secret store and are never copied into the file. */
+ * There is no server and no schema here on purpose — the people directory, the
+ * seeded superadmin and the minted-token pool live in one file, rewritten on
+ * every change. A key is stored as a scrypt hash with a per-person salt, so a
+ * leaked copy is a list of names rather than a set of working credentials. (A
+ * pool entry's `param` is a single-use Aliyun answer, not a key; it is there
+ * because a pool that cannot survive a restart is not much of a pool.) Keys
+ * that come from the environment (GLM_KEYS, GLM_PEOPLE, GLM_SUPERADMIN) are the
+ * operator's own secret store and are never copied into the file. */
 const STATE_FILE = String(process.env.GLM_STATE_FILE || '').trim();
 
 function hashKey(key, salt) {
@@ -645,7 +712,7 @@ function pinnedPerson(o) {
   return pinnedReason(o) !== null;
 }
 
-function loadPeople() {
+function loadState() {
   if (!STATE_FILE) return;
   let raw;
   try { raw = readFileSync(STATE_FILE, 'utf8'); } catch { return; }
@@ -687,16 +754,52 @@ function loadPeople() {
     }
   }
   if (list.length || seed) log('people directory loaded from ' + STATE_FILE + ' (' + Math.max(list.length, state.people.size) + ')');
+
+  /* The pool rides in the same document. A file written before the pool was
+   * persisted has no `tokens` key at all, which means an empty pool — never an
+   * error. An entry whose TTL has passed is dropped rather than resurrected:
+   * the param is already dead to Aliyun, and raising it would only be spent as
+   * a refusal on the next chat. Counted, so the drop is not silent. Loaded
+   * before the migration write below, or that write would save an empty pool
+   * over the real one. */
+  const now = Date.now();
+  const pool = Array.isArray(parsed && parsed.tokens) ? parsed.tokens : [];
+  let expiredOnLoad = 0;
+  for (const t of pool) {
+    if (!t || typeof t.param !== 'string' || !t.param) continue;
+    if (t.expiresAt && Number(t.expiresAt) <= now) { expiredOnLoad++; continue; }
+    state.tokens.push({
+      id: typeof t.id === 'string' && t.id ? t.id : 'tok-' + newId(5),
+      at: Number(t.at) || now,
+      expiresAt: Number(t.expiresAt) || 0,
+      partnerId: t.partnerId || null,
+      person: t.person || null,
+      param: t.param,
+      size: Number(t.size) || t.param.length,
+      source: t.source || 'mint',
+    });
+  }
+  state.expired += expiredOnLoad;
+  if (pool.length) {
+    log('pool: ' + state.tokens.length + ' token(s) loaded from ' + STATE_FILE
+      + (expiredOnLoad ? ', ' + expiredOnLoad + ' expired on the way' : ''));
+  }
+
   if (migrated) {
-    savePeople();
+    saveState();
     log(migrated + ' key(s) hashed on load; the file no longer holds any of them');
   }
 }
 
-/* Written on every mutation, not on every sign-in. The seeded superadmin gets
- * its own block rather than a row in `people`, because it is not the directory's
- * to drop — and `people` is exactly the set a revoke can delete. */
-function savePeople() {
+/* Written on every mutation, not on every sign-in. One document carries the
+ * people directory, the seeded superadmin and the minted-token pool — and
+ * nothing else: sessions, jobs and in-flight counters die with the process on
+ * purpose. The seeded superadmin gets its own block rather than a row in
+ * `people`, because it is not the directory's to drop — and `people` is exactly
+ * the set a revoke can delete. A pool entry's `param` is a single-use Aliyun
+ * answer, not a key; it is written because a pool that cannot survive a restart
+ * is the gap this file exists to close. */
+function saveState() {
   if (!STATE_FILE) return;
   let seed = null;
   const people = [];
@@ -711,14 +814,24 @@ function savePeople() {
   }
   const doc = { version: 2, savedAt: Date.now(), people };
   if (seed) doc.seed = seed;
+  // Only entries still inside their TTL: a dead one would be dropped on the
+  // next load anyway, so writing it would only make the file briefly untrue.
+  const now = Date.now();
+  doc.tokens = state.tokens
+    .filter((t) => !t.expiresAt || t.expiresAt > now)
+    .map((t) => ({
+      id: t.id, at: t.at, expiresAt: t.expiresAt, partnerId: t.partnerId || null,
+      person: t.person || null, param: t.param, size: t.size, source: t.source || 'mint',
+    }));
   const tmp = STATE_FILE + '.tmp';
   try {
-    // 0600 anyway: the file is a directory of names and a place to guess at
-    // hashes, and nothing else on the box needs it.
+    // 0600 anyway: the file is a directory of names, a place to guess at
+    // hashes and a set of live captcha answers, and nothing else on the box
+    // needs it.
     writeFileSync(tmp, JSON.stringify(doc, null, 2) + '\n', { mode: 0o600 });
     renameSync(tmp, STATE_FILE);
   } catch (e) {
-    log('could not write the state file (' + (e && e.message) + '); the directory is memory-only');
+    log('could not write the state file (' + (e && e.message) + '); the directory and pool are memory-only');
   }
 }
 
@@ -737,7 +850,7 @@ function revokePerson(name) {
   for (const p of state.partners.values()) {
     if (p.person === name && p.socket) { p.socket.close(1008, 'access revoked'); sockets++; }
   }
-  savePeople();
+  saveState();
   log('revoked ' + name + ' (' + person.role + '): ' + sessions + ' session(s), ' + sockets + ' socket(s) dropped');
   return { ok: true, name, role: person.role, sessions, sockets };
 }
@@ -758,12 +871,12 @@ function rotatePerson(name) {
   for (const [sid, s] of state.sessions) {
     if (s.name === name) { state.sessions.delete(sid); sessions++; }
   }
-  savePeople();
+  saveState();
   log('rotated the key for ' + name + ' (' + person.role + '), ' + sessions + ' session(s) dropped');
   return { ok: true, name, role: person.role, key, sessions };
 }
 
-loadPeople();
+loadState();
 for (const m of String(process.env.GLM_PEOPLE || '').matchAll(PEOPLE_RE)) {
   const [, name, role, key] = m;
   // The environment wins over the file: a pinned person cannot be shadowed by
@@ -788,7 +901,7 @@ if (SEED_FROM_ENV || (GENERATED.has('superadmin') && !state.people.has(SUPERADMI
   });
 }
 // A generated seed is worthless after a restart unless its hash is on disk.
-if (GENERATED.has('superadmin') && STATE_FILE) savePeople();
+if (GENERATED.has('superadmin') && STATE_FILE) saveState();
 
 function sign(sid) {
   return createHmac('sha256', SECRET).update(sid).digest('base64url');
@@ -987,18 +1100,42 @@ async function verifyDonation(donation, value) {
   return donation;
 }
 
+/* What routes and what does not, in words — read by the panel's egress row so
+ * an operator never has to infer it from a label. */
+function refreshEgress() {
+  const e = state.egress;
+  e.dead = egressDeadCount();
+  if (!EGRESS_ROUTES.length) {
+    e.note = 'GLM_EGRESS_ROUTES is empty: no egress routes are configured, so every '
+      + 'outbound call goes direct';
+    return;
+  }
+  if (e.mode === 'direct') {
+    e.note = EGRESS_ROUTES.length + ' SOCKS5 route(s) are configured but GLM_EGRESS_MODE=direct: '
+      + 'nothing is routed, every outbound call goes direct';
+    return;
+  }
+  const live = EGRESS_ROUTES.length - e.dead;
+  e.note = 'chat forwards and the upstream-key probe go through ' + live + ' of '
+    + EGRESS_ROUTES.length + ' ' + (e.mode === 'tor' ? 'Tor' : 'SOCKS5') + ' route(s), round-robin; '
+    + 'POST /captcha/verify and the donation exchange stay direct because the captcha widget '
+    + 'breaks behind a proxy, and /status-style calls never leave this process';
+  if (!live) e.note += '; every route is dead right now, so calls fall back to direct and say so';
+}
+
 /* The exact shape admin.js reads in fillStatus(). Field names are its. */
 function statusPayload(req) {
   const partners = [...state.partners.values()];
   const ips = new Set(partners.map((p) => p.ip).filter(Boolean));
   const now = Date.now();
+  refreshEgress();
 
   return {
     ok: true,
     // Where this hub is reachable, worked out from the request, so the panel
     // shows a real address on a VPS instead of a localhost literal.
     deploy: deploymentInfo(req),
-    mode: state.egress.tor ? 'tor' : state.egress.proxy ? 'proxy' : state.egress.partners ? 'partners' : 'direct',
+    mode: state.egress.mode,
     port: PORT,
     user: process.env.USER || process.env.USERNAME || 'operator',    userName: process.env.USER || process.env.USERNAME || 'operator',
     feVersion: FE_VERSION,
@@ -1048,6 +1185,14 @@ function statusPayload(req) {
         ? 'chat is forwarded to ' + UPSTREAM.url
         : 'set GLM_UPSTREAM to forward /v1/chat/completions; without it chat answers 501',
     },
+    // The shared upstream-key pool: counts, then metadata rows. Never a token.
+    upstreamKeys: Object.assign(upstreamKeyStats(), {
+      rows: [...state.upstreamKeys.values()].map(upstreamKeyRow),
+      envKey: UPSTREAM.key ? 'set (GLM_UPSTREAM_KEY)' : 'not set',
+      storage: 'memory only — a contributed account credential is never written to the state file',
+      note: 'any signed-in role may contribute a token; the gate probes it once, and a chat call '
+        + 'spends a live one in place of GLM_UPSTREAM_KEY',
+    }),
     chat: state.chat,
     chatLimit: {
       concurrency: CHAT_CONCURRENCY,
@@ -1106,6 +1251,9 @@ function statusPayload(req) {
       donatedInvalid: state.donated.filter((d) => d.status === 'invalid').length,
       donatedVerifying: state.donated.filter((d) => d.status === 'verifying').length,
       donatedUnverified: state.donated.filter((d) => d.status === 'unverified').length,
+      storage: STATE_FILE
+        ? 'file-backed (GLM_STATE_FILE) — minted params reload on start, minus those already expired'
+        : 'memory only (set GLM_STATE_FILE to keep minted params across a restart)',
       note: 'each entry expires after ttlMs and moves to expired; below lowwater the hub asks partners for more; '
         + 'the chat path spends the oldest entry as captcha_verify_param and returns it on 401/403/429',
     },
@@ -1273,6 +1421,9 @@ function sweepPool(now) {
   if (moved) {
     state.tokens = keep;
     state.expired += moved;
+    // Only when something actually left: the sweeper runs on a timer, and a
+    // write on every tick would be write amplification for no new state.
+    saveState();
     log(moved + ' pool entr' + (moved === 1 ? 'y' : 'ies') + ' expired (' + state.expired + ' total)');
   }
   return moved;
@@ -1285,6 +1436,7 @@ function consumeToken() {
   const entry = state.tokens.shift();
   if (!entry) return null;
   state.consumed++;
+  saveState();    // the spend is durable: a restart must not re-spend it
   return entry;
 }
 
@@ -1374,6 +1526,10 @@ function finishJob(id, partner, outcome, detail) {
       size: String(detail).length,
       source: 'mint',
     });
+    // ponytail: one full document rewrite per mint. Fine at a browser-tab mint
+    // rate; debounce (or append-only) if the pool ever fills from an automated
+    // swarm and the write cost shows up.
+    saveState();
     // Over-collected entries age out through expiry, not by being dropped here.
     log('mint ok from ' + (partner ? partner.id : '?') + ' (' + state.tokens.length + ' available)');
     refillPool();
@@ -1652,6 +1808,278 @@ async function serveStatic(req, res, pathname, session) {
   }
 }
 
+/* ── the shared upstream-key pool ──────────────────────────────────────────
+ * A bearer token for the real upstream, contributed by anyone signed in and
+ * spent by anyone's chat call in place of GLM_UPSTREAM_KEY. Everything here is
+ * memory-only: see state.upstreamKeys for why the token is never written down.
+ * The hash keys the map so the same account cannot land twice, and every
+ * function that leaves this section returns the id, never the token. */
+
+function upstreamKeyHash(source, key) {
+  return createHash('sha256').update(String(source) + '\0' + String(key), 'utf8').digest('hex');
+}
+
+/* Shape, then claims, offline. A three-segment token must decode: an
+ * unparseable or expired one is refused with the reason rather than stored as a
+ * row nobody can use. A token that is not a JWT is accepted as supplied — the
+ * reference projects tolerate those and only the upstream can say otherwise. */
+function inspectUpstreamKey(key) {
+  const parts = String(key).split('.');
+  if (parts.length !== 3) return { ok: true, jwt: false, id: '', sub: '', exp: 0 };
+  if (!parts.every((s) => /^[A-Za-z0-9_-]+$/.test(s))) {
+    return { ok: false, reason: 'JWT segments are not base64url' };
+  }
+  let payload = null;
+  try { payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')); }
+  catch { return { ok: false, reason: 'JWT payload does not decode to JSON' }; }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { ok: false, reason: 'JWT payload is not a JSON object' };
+  }
+  const exp = payload.exp === undefined ? 0 : Number(payload.exp);
+  if (payload.exp !== undefined) {
+    if (!Number.isFinite(exp)) return { ok: false, reason: 'JWT exp claim is not a number' };
+    if (exp * 1000 <= Date.now()) {
+      return { ok: false, reason: 'JWT expired: exp=' + exp + ' is in the past' };
+    }
+  }
+  return {
+    ok: true,
+    jwt: true,
+    id: typeof payload.id === 'string' ? payload.id : '',
+    sub: typeof payload.sub === 'string' ? payload.sub : '',
+    exp,
+  };
+}
+
+/* ── the routing decision ────────────────────────────────────────────────
+ * One place decides where an outbound call goes, so "is this routed?" has one
+ * answer and the response can carry it.
+ *
+ * What routes: the chat forward and the upstream-key probe — both talk to the
+ * same chat origin, and a probe that went a different way would say nothing
+ * about the call it is vouching for.
+ *
+ * What stays direct, on purpose: POST /captcha/verify and the donation
+ * exchange (verifyDonation → verifyCaptchaParam). Both are Aliyun captcha
+ * traffic, and the reference projects keep the captcha widget direct because
+ * it breaks behind a proxy — an exit whose address the captcha does not
+ * recognise is worse than no exit. Every /status-style call is local to this
+ * process and never leaves it, so there is nothing to route.
+ */
+let egressNext = 0;              // round-robin cursor over EGRESS_ROUTES
+let egressFallbackLogged = false;
+
+function pickEgress() {
+  const e = state.egress;
+  if (e.mode === 'direct' || !EGRESS_ROUTES.length) return null;
+  const now = Date.now();
+  for (let i = 0; i < EGRESS_ROUTES.length; i++) {
+    const route = EGRESS_ROUTES[(egressNext + i) % EGRESS_ROUTES.length];
+    if (route.deadUntil > now) continue;
+    egressNext = (egressNext + i + 1) % EGRESS_ROUTES.length;
+    return route;
+  }
+  return null;                    // every route is dead
+}
+
+function egressDeadCount() {
+  const now = Date.now();
+  return EGRESS_ROUTES.filter((r) => r.deadUntil > now).length;
+}
+
+function markEgressDead(route, why) {
+  route.deadUntil = Date.now() + EGRESS_DEAD_MS;
+  state.egress.lastError = (why && why.message) || String(why || 'handshake failed');
+  state.egress.dead = egressDeadCount();
+  egressFallbackLogged = false;
+  log('egress route ' + route.host + ':' + route.port + ' marked dead for '
+    + Math.round(EGRESS_DEAD_MS / 1000) + 's: ' + state.egress.lastError
+    + ' (' + state.egress.dead + '/' + EGRESS_ROUTES.length + ' dead)');
+}
+
+/* One line when a call has to go direct because nothing is alive — never one
+ * per request, or a dead circuit list would be a log flood. */
+function noteEgressFallback() {
+  if (egressFallbackLogged) return;
+  egressFallbackLogged = true;
+  log('egress: all ' + EGRESS_ROUTES.length + ' route(s) are dead, so this call goes direct'
+    + (state.egress.lastError ? ' (' + state.egress.lastError + ')' : ''));
+}
+
+/* Route one request and label it in `egress.label`. A handshake failure marks
+ * that route dead and retries once on the next live one; with none left the
+ * call goes direct and says so. Anything else (an upstream refusing, a reset
+ * after the tunnel is up) is the upstream's answer, not the route's fault. */
+async function egressForward(origin, path, request, egress) {
+  const mode = state.egress.mode;
+  let route = pickEgress();
+  if (route) egress.label = mode;
+  else if (mode === 'direct') egress.label = 'direct';
+  else {
+    egress.label = 'direct-fallback';
+    noteEgressFallback();
+  }
+
+  let up;
+  try {
+    up = await forward(origin, path, Object.assign({}, request, { route }));
+  } catch (e) {
+    if (!e || !e.tunnel || !route) throw e;
+    markEgressDead(route, e);
+    const next = pickEgress();
+    if (next) {
+      egress.label = mode;
+      up = await forward(origin, path, Object.assign({}, request, { route: next }));
+    } else {
+      egress.label = 'direct-fallback';
+      noteEgressFallback();
+      up = await forward(origin, path, Object.assign({}, request, { route: null }));
+    }
+  }
+  if (route && egress.label !== 'direct-fallback' && !egressDeadCount()) {
+    // Nothing is dead any more, so the last routing error is history rather
+    // than a standing warning.
+    state.egress.lastError = null;
+    egressFallbackLogged = false;
+  }
+  return up;
+}
+
+/* One cheap call carrying the token, bounded at 5 s, never more than one. Only
+ * when an upstream is configured: without GLM_UPSTREAM there is nowhere to
+ * probe, so the answer is 'unverified' — never 'valid'. */
+async function probeUpstreamKey(source, key, tag) {
+  const egress = { label: 'direct' };
+  const answer = await probeWithKey(source, key, tag, egress);
+  return Object.assign({}, answer, {
+    egress: egress.label,
+    note: answer.note + ' (egress: ' + egress.label + ')',
+  });
+}
+
+async function probeWithKey(source, key, tag, egress) {
+  if (!UPSTREAM.url) return { health: 'unverified', status: 0, note: 'no upstream is configured to probe' };
+  const via = SOURCES[source];
+  /* The probe carries what the real call carries, signature included: an
+   * upstream that verifies the signature would otherwise answer 401 to a
+   * perfectly good token, and the gate would blame the credential. One prompt,
+   * signed with the probed key the same way the forward signs `promptOf`. */
+  const prompt = 'ping';
+  try {
+    const r = await egressForward(UPSTREAM.url.replace(/\/+$/, ''), via.path, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer ' + key,
+        'x-fe-version': FE_VERSION,
+        'x-region': via.region,
+        'x-glm-caller': tag,
+        'x-signature': signZai(prompt, key),
+      },
+      body: JSON.stringify({
+        model: 'glm-4.7',
+        messages: [{ role: 'user', content: prompt }],
+        signature_prompt: prompt,
+        stream: false,
+      }),
+      timeoutMs: UPSTREAM_KEY_PROBE_MS,
+    }, egress);
+    await r.text().catch(() => '');   // drain, so the socket is not left half-read
+    if (r.status === 401 || r.status === 403) {
+      return { health: 'refused', status: r.status, note: 'the upstream refused the token (HTTP ' + r.status + ')' };
+    }
+    if (r.status === 429) {
+      return {
+        health: 'dead', status: r.status, deadUntil: Date.now() + UPSTREAM_KEY_DEAD_MS,
+        note: 'the upstream throttled the token (HTTP 429); held for 10 minutes',
+      };
+    }
+    if (r.ok) return { health: 'ok', status: r.status, note: 'the upstream accepted the token (HTTP ' + r.status + ')' };
+    return {
+      health: 'unverified', status: r.status,
+      note: 'the probe answered HTTP ' + r.status + ', which says nothing about the token',
+    };
+  } catch (e) {
+    return {
+      health: 'unverified', status: 0,
+      note: 'the probe could not be attempted (' + (e && e.name === 'AbortError' ? 'timed out' : 'unreachable') + ')',
+    };
+  }
+}
+
+/* The credentials to try, in order: a live pool token for this source (proven
+ * 'ok' first, then 'unverified'), then GLM_UPSTREAM_KEY, then nothing. A dead
+ * token is skipped until its hold expires; after that it is a candidate again,
+ * relabelled 'unverified' because nothing re-proved it. */
+function upstreamCredentials(source) {
+  const now = Date.now();
+  const pool = [...state.upstreamKeys.values()]
+    .filter((k) => k.source === source)
+    .filter((k) => {
+      if (k.health !== 'dead') return true;
+      if (k.deadUntil > now) return false;
+      k.health = 'unverified';
+      return true;
+    });
+  pool.sort((a, b) => (a.health === 'ok' ? 0 : 1) - (b.health === 'ok' ? 0 : 1));
+  const out = pool.map((k) => ({
+    key: k.key,
+    kind: k.health === 'ok' ? 'pool' : 'pool-unverified',
+    entry: k,
+  }));
+  if (UPSTREAM.key) out.push({ key: UPSTREAM.key, kind: 'env', entry: null });
+  if (!out.length) out.push({ key: '', kind: 'none', entry: null });
+  return out;
+}
+
+/* A pool token the upstream refused or throttled is held dead, so the next call
+ * does not spend a pool entry on it. One line, the id only: a token is never
+ * logged. */
+function markUpstreamKeyDead(entry, status) {
+  entry.fails = (entry.fails || 0) + 1;
+  entry.health = 'dead';
+  entry.deadUntil = Date.now() + UPSTREAM_KEY_DEAD_MS;
+  log('upstream key ' + entry.id + ' (' + entry.source + ') is dead: HTTP ' + status
+    + '; held for ' + Math.round(UPSTREAM_KEY_DEAD_MS / 60000) + ' min');
+}
+
+/* Metadata only — the token never leaves the store. */
+function upstreamKeyRow(k) {
+  return {
+    id: k.id,
+    source: k.source,
+    addedBy: k.addedBy,
+    at: k.at,
+    uses: k.uses,
+    lastUsed: k.lastUsed || null,
+    health: k.health,
+    deadUntil: k.health === 'dead' ? k.deadUntil : null,
+    jwt: k.jwt,
+  };
+}
+
+/* Who contributed: the person's name, or the role when the session is not a
+ * person. Never the token, and never anything derived from it. */
+function contributorOf(session) {
+  return (session && (session.name || session.role)) || '';
+}
+
+function upstreamKeyStats() {
+  const all = [...state.upstreamKeys.values()];
+  const count = (h) => all.filter((k) => k.health === h).length;
+  const bySource = {};
+  for (const s of UPSTREAM_KEY_SOURCES) bySource[s] = all.filter((k) => k.source === s).length;
+  return {
+    total: all.length,
+    bySource,
+    healthy: count('ok'),
+    dead: count('dead'),
+    unverified: count('unverified'),
+    refused: count('refused'),     // never stored: a refusal is a 400, not a row
+    uses: all.reduce((a, k) => a + (k.uses || 0), 0),
+  };
+}
+
 /* ── http ────────────────────────────────────────────────────────────────── */
 
 const server = createServer(async (req, res) => {
@@ -1712,6 +2140,11 @@ const server = createServer(async (req, res) => {
         lowwater: LOWWATER,
         note: 'live pool state for the page that shows it; the per-caller detail is /status, which is admin only',
       },
+      // The upstream keys this person contributed: the same metadata rows, and
+      // only their own. Counts, never tokens — not even their own.
+      myKeys: [...state.upstreamKeys.values()]
+        .filter((k) => k.addedBy === contributorOf(session))
+        .map(upstreamKeyRow),
     });
   }
 
@@ -1959,6 +2392,139 @@ const server = createServer(async (req, res) => {
     });
   }
 
+  /* ── the shared upstream-key pool: contribute, list, revoke ───────────────
+   * Any signed-in role may contribute a bearer token for the real upstream;
+   * anyone's chat call may then spend a live one in place of GLM_UPSTREAM_KEY.
+   * The gate runs in a fixed order — shape, claims, duplicate, one live probe —
+   * so a token is never sent anywhere before it is well formed, and an account
+   * that is already on file is a 409 rather than a second row. The response
+   * carries the id and the health; the token goes back nowhere. */
+  if (p === '/upstream/keys' && req.method === 'POST') {
+    if (!session) {
+      return json(res, 401, { error: 'a session is required to contribute an upstream key; sign in first' });
+    }
+    const body = await readBody(req);
+    if (!body || typeof body !== 'object') return json(res, 400, { error: 'bad json' });
+
+    const source = String(body.source || '');
+    if (!UPSTREAM_KEY_SOURCES.includes(source)) {
+      return json(res, 400, { error: 'source must be one of: ' + UPSTREAM_KEY_SOURCES.join(', ') });
+    }
+
+    const key = typeof body.key === 'string' ? body.key : '';
+    const checks = [];
+    if (key.length < 20 || key.length > 4096) {
+      return json(res, 400, { error: 'key must be a string of 20 to 4096 characters', source, checks });
+    }
+    if (/[\s\x00-\x1f\x7f]/.test(key)) {
+      return json(res, 400, { error: 'key contains whitespace or control characters', source, checks });
+    }
+    checks.push('shape: ' + key.length + ' characters, no whitespace or control characters');
+
+    const claims = inspectUpstreamKey(key);
+    if (!claims.ok) {
+      return json(res, 400, { error: 'key refused: ' + claims.reason, source, jwt: true, checks });
+    }
+    checks.push(claims.jwt
+      ? 'claims: JWT decoded, exp ' + (claims.exp ? new Date(claims.exp * 1000).toISOString() : 'not present')
+        + (claims.id ? ', id ' + claims.id : '') + (claims.sub ? ', sub ' + claims.sub : '')
+      : 'claims: opaque token (no JWT to read), accepted as supplied');
+
+    const hash = upstreamKeyHash(source, key);
+    const existing = state.upstreamKeys.get(hash);
+    if (existing) {
+      return json(res, 409, {
+        error: 'this ' + source + ' key is already contributed',
+        id: existing.id,
+        source,
+        health: existing.health,
+        note: 'a second visitor does not create a second row for the same account; revoke the existing one first',
+      });
+    }
+    checks.push('duplicate: no row for this token');
+
+    const probe = await probeUpstreamKey(source, key, callerTag(chatKeyOf(req, session)));
+    if (probe.health === 'refused') {
+      return json(res, 400, {
+        error: 'the upstream refused this key (HTTP ' + probe.status + ')',
+        source,
+        health: probe.health,
+        upstream_status: probe.status,
+        checks: checks.concat('probe: ' + probe.note),
+      });
+    }
+    checks.push('probe: ' + probe.note);
+
+    // Re-checked after the probe: two contributions of one token can pass the
+    // first check while the probe is in flight, and one account is one row.
+    const raced = state.upstreamKeys.get(hash);
+    if (raced) {
+      return json(res, 409, { error: 'this ' + source + ' key is already contributed', id: raced.id, source, health: raced.health });
+    }
+
+    const row = {
+      id: hash.slice(0, 8),
+      source,
+      key,                              // memory only, never serialised
+      addedBy: contributorOf(session),
+      at: Date.now(),
+      uses: 0,
+      lastUsed: null,
+      health: probe.health,
+      fails: 0,
+      deadUntil: probe.deadUntil || 0,
+      jwt: claims.jwt,
+      sub: claims.sub || '',
+    };
+    state.upstreamKeys.set(hash, row);
+    log('upstream key ' + row.id + ' contributed by ' + row.addedBy + ' for ' + source
+      + ' (' + row.health + ', ' + state.upstreamKeys.size + ' held)');
+    return json(res, 200, {
+      ok: true,
+      id: row.id,
+      source,
+      jwt: row.jwt,
+      health: row.health,
+      checks,
+      note: 'memory only: the token is never written to the state file, logged or listed',
+    });
+  }
+
+  // Metadata only. A contributor sees their own rows; an admin sees every row.
+  if (p === '/upstream/keys' && req.method === 'GET') {
+    if (!session) return json(res, 401, { error: 'a session is required to read contributed keys; sign in first' });
+    const rows = [...state.upstreamKeys.values()]
+      .filter((k) => isAdminish(session.role) || k.addedBy === contributorOf(session))
+      .map(upstreamKeyRow);
+    return json(res, 200, {
+      ok: true,
+      total: rows.length,
+      keys: rows,
+      scope: isAdminish(session.role) ? 'every contributed key' : 'the keys you contributed',
+      note: 'the token itself is never listed here',
+    });
+  }
+
+  if (p === '/upstream/keys/revoke' && req.method === 'POST') {
+    if (!session) return json(res, 401, { error: 'a session is required to revoke a key; sign in first' });
+    const body = await readBody(req);
+    const id = String((body && body.id) || '').trim();
+    if (!id) return json(res, 400, { error: 'send {id} (the id GET /upstream/keys lists)' });
+    let hash = null;
+    for (const [h, k] of state.upstreamKeys) if (k.id === id) { hash = h; break; }
+    if (!hash) return json(res, 404, { error: 'no contributed key with id ' + id });
+    const row = state.upstreamKeys.get(hash);
+    if (row.addedBy !== contributorOf(session) && !isAdminish(session.role)) {
+      return json(res, 403, {
+        error: 'only the contributor (' + row.addedBy + ') or an admin may revoke this key',
+      });
+    }
+    state.upstreamKeys.delete(hash);
+    log('upstream key ' + id + ' revoked by ' + contributorOf(session)
+      + ' (' + state.upstreamKeys.size + ' held)');
+    return json(res, 200, { ok: true, id, removed: true });
+  }
+
   /* ── captcha verification: prove a minted param or a donation ────────────
    * Admin-only. `value` is a donated value's fingerprint OR a raw captcha
    * param; `param` sends a raw param straight to Aliyun. The answer is
@@ -2059,7 +2625,7 @@ const server = createServer(async (req, res) => {
     if (key.length < 8) return json(res, 400, { error: 'a supplied key must be at least 8 characters' });
     // Only the hash is kept; this response is the one and only sight of the key.
     state.people.set(name, { name, role, ...makeCredential(key), at: Date.now(), uses: 0 });
-    savePeople();
+    saveState();
     log('created person ' + name + ' (' + role + ')');
     return json(res, 201, { ok: true, name, role, key, note: 'this is the only time the key is returned' });
   }
@@ -2325,35 +2891,71 @@ const server = createServer(async (req, res) => {
     for (const k of ['temperature', 'top_p', 'max_tokens']) {
       if (body[k] !== undefined) payload[k] = body[k];
     }
-    const headers = { 'content-type': 'application/json' };
-    if (UPSTREAM.key) headers.authorization = 'Bearer ' + UPSTREAM.key;
-    headers['x-fe-version'] = FE_VERSION;
-    headers['x-region'] = dest.region;
-    // The caller tag travels upstream so a conversation is attributable in the
-    // upstream's own logs; the name never does. Unknown headers are ignored by
-    // an HTTP peer, and the signature does not cover it.
-    headers['x-glm-caller'] = tag;
-    // The signature covers the prompt, so it must be computed from the same
-    // prompt the body carries.
-    headers['x-signature'] = signZai(prompt, UPSTREAM.key);
+    /* Which credential goes upstream. A live pool token for this source wins
+     * over GLM_UPSTREAM_KEY — a proven 'ok' first, then an 'unverified' one —
+     * because the pool is the point of this endpoint: nobody has to bring a key
+     * to get chat. A dead token is skipped until its hold expires. The choice
+     * rides back on x-glm-key so the caller can see whose credential answered;
+     * the token never appears anywhere. */
+    const creds = upstreamCredentials(entry.source);
+    let cred = creds[0];
 
     state.chat.requests++;
     state.chat.lastModel = entry.id;
     if (spent) state.chat.poolSpent++;
+    /* Where this call actually went. 'direct' until a route is picked; every
+     * chat response carries it as x-glm-egress, so a caller can see whether the
+     * exit it asked for was used instead of taking the label on trust. */
+    const egress = { label: 'direct' };
+    res.setHeader('x-glm-egress', 'direct');
     try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), UPSTREAM.timeoutMs);
-      const up = await fetch(dest.origin + dest.path, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        signal: ctrl.signal,
-      });
-      clearTimeout(timer);
-      state.chat.lastStatus = up.status;
-      state.chat.lastAt = Date.now();
-      chatRow.status = up.status;
-      const text = await up.text();
+      let up = null;
+      let text = '';
+      // Two attempts at most: the chosen credential, and — only when the
+      // upstream refuses a *pool* token and another credential exists — one
+      // retry with the next one. The captcha entry is refunded once, after the
+      // loop, so a retry never spends a second entry.
+      for (let i = 0; i < creds.length && i < 2; i++) {
+        cred = creds[i];
+        const headers = { 'content-type': 'application/json' };
+        if (cred.key) headers.authorization = 'Bearer ' + cred.key;
+        headers['x-fe-version'] = FE_VERSION;
+        headers['x-region'] = dest.region;
+        // The caller tag travels upstream so a conversation is attributable in
+        // the upstream's own logs; the name never does. Unknown headers are
+        // ignored by an HTTP peer, and the signature does not cover it.
+        headers['x-glm-caller'] = tag;
+        // The signature covers the prompt, so it must be computed from the same
+        // prompt the body carries — and from the key the request actually
+        // carries, since the account id inside it is part of what is signed.
+        headers['x-signature'] = signZai(prompt, cred.key);
+        up = await egressForward(dest.origin, dest.path, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          timeoutMs: UPSTREAM.timeoutMs,
+        }, egress);
+        text = await up.text();
+        if (cred.entry) {
+          cred.entry.uses = (cred.entry.uses || 0) + 1;
+          cred.entry.lastUsed = Date.now();
+        }
+        state.chat.lastStatus = up.status;
+        state.chat.lastAt = Date.now();
+        chatRow.status = up.status;
+        if (up.ok) break;
+        const refused = up.status === 401 || up.status === 403 || up.status === 429;
+        // A pool token the upstream will not take is held dead, so the next
+        // call does not spend an entry on it. One log line, the id only.
+        if (refused && cred.entry) markUpstreamKeyDead(cred.entry, up.status);
+        if (refused && cred.entry && i + 1 < creds.length && i + 1 < 2) {
+          log('chat -> ' + entry.id + ' HTTP ' + up.status + ' with pool key ' + cred.entry.id
+            + '; retrying once with ' + creds[i + 1].kind);
+          continue;
+        }
+        break;
+      }
+      res.setHeader('x-glm-key', cred.kind);
       // Rejected because of the credential or the captcha, not because of the
       // question: put the entry back at the head so it is not silently burned.
       if (spent && (up.status === 401 || up.status === 403 || up.status === 429)) {
@@ -2362,6 +2964,9 @@ const server = createServer(async (req, res) => {
         // The entry did not get spent, so the "spent" counter must not keep
         // it. Without this the panel's number only ever climbs.
         state.chat.poolSpent = Math.max(0, state.chat.poolSpent - 1);
+        // The consume wrote the spend to the file; this puts it back, or a
+        // restart right now would lose an entry the upstream never accepted.
+        saveState();
         log('chat -> ' + entry.id + ' HTTP ' + up.status + '; pool entry returned unspent');
       } else if (spent) {
         log('chat -> ' + entry.id + ' spent a pool entry (' + state.tokens.length + ' left)');
@@ -2371,6 +2976,7 @@ const server = createServer(async (req, res) => {
       res.writeHead(up.status, {
         'content-type': up.headers.get('content-type') || 'application/json',
         'x-glm-pool': spent ? 'spent' : 'empty',
+        'x-glm-egress': egress.label,
       });
       res.end(text);
       if (up.ok) {
@@ -2400,12 +3006,17 @@ const server = createServer(async (req, res) => {
         state.tokens.unshift(spent);
         state.consumed = Math.max(0, state.consumed - 1);
         state.chat.poolSpent = Math.max(0, state.chat.poolSpent - 1);
+        saveState();      // the entry never left; the file must say so too
       }
       state.chat.failed++;
       state.chat.lastStatus = 'error';
       state.chat.lastAt = Date.now();
       chatRow.status = 'error';
       chatRow.turns = before || [];
+      res.setHeader('x-glm-key', cred.kind);
+      // The 502 carries the routing label too: "unreachable" and "the route was
+      // dead so this went direct and also failed" are different operator facts.
+      res.setHeader('x-glm-egress', egress.label);
       return json(res, 502, {
         error: {
           message: 'upstream unreachable: ' + (e && e.name === 'AbortError'
@@ -2523,8 +3134,11 @@ server.listen(PORT, HOST, () => {
   if (STATE_FILE) {
     log('  people directory: ' + STATE_FILE
       + ' (written on change; a revocation survives a restart)');
+    log('  token pool:      ' + STATE_FILE
+      + ' (minted params survive a restart until they expire; sessions and jobs do not)');
   } else {
     log('  people directory: memory only — set GLM_STATE_FILE=<path> to keep it across restarts');
+    log('  token pool:       memory only — set GLM_STATE_FILE=<path> to keep minted params across restarts');
   }
   if (UPSTREAM.url) {
     log('  upstream: ' + UPSTREAM.url + (UPSTREAM.key ? ' (with a key)' : ' (no key)'));

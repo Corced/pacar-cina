@@ -39,13 +39,11 @@ function gaps(text) {
  * is always correct. */
 function closing(n) {
   return {
-    1: 'a credential: set GLM_UPSTREAM + GLM_UPSTREAM_KEY, then `node doctor.mjs live`',
+    1: 'a credential: contribute one with POST /upstream/keys, or set GLM_UPSTREAM + GLM_UPSTREAM_KEY, then `node doctor.mjs live`',
     2: 'a real browser: HANDOFF.md gap 2 (sign in, watch /minter/ws, verify the param)',
     3: 'the same credential, once per suffix: `node doctor.mjs live z.ai/glm-4.7-think`',
-    4: 'a decision, not code: the note argues for keeping the pool in memory',
-    5: 'a proxy or Tor: HANDOFF.md gap 5 (SOCKS5 module + a stub to prove it)',
-    6: 'time and a screenshot: HANDOFF.md gap 6 (30 min tab, 390 px diff)',
-    7: 'a chatglm.cn credential: `node doctor.mjs live cn/glm-4.7`',
+    4: 'time and a screenshot: HANDOFF.md gap 4 (30 min tab, 390 px diff)',
+    5: 'a chatglm.cn credential: `node doctor.mjs live cn/glm-4.7`',
   }[n] || 'HANDOFF.md, gap ' + n;
 }
 
@@ -115,9 +113,9 @@ function report() {
   const ready = [];
   if (!up) {
     ready.push('$env:GLM_UPSTREAM=\'https://chat.z.ai\'; $env:GLM_UPSTREAM_KEY=\'<the bearer value>\'');
-    ready.push('node doctor.mjs live            # gap 1, and gap 7 with a cn/ model');
+    ready.push('node doctor.mjs live            # gap 1, and gap 5 with a cn/ model');
   } else {
-    ready.push('node doctor.mjs live            # gap 1, and gap 7 with a cn/ model');
+    ready.push('node doctor.mjs live            # gap 1, and gap 5 with a cn/ model');
     if (key) ready.push('node doctor.mjs live z.ai/glm-4.7-think   # gap 3, once per suffix');
   }
   console.log('Next commands');
@@ -255,7 +253,7 @@ function selfTest() {
     console.log('FAIL ' + name + (detail ? '  - ' + detail : ''));
   };
 
-  ok('the note still lists its numbered gaps', list.length >= 7, 'found ' + list.length);
+  ok('the note still lists its numbered gaps', list.length >= 5, 'found ' + list.length);
   ok('every gap has a title', list.every((g) => g.title.length > 8), JSON.stringify(list.map((g) => g.n)));
   ok('every gap has a way to close it', list.every((g) => closing(g.n).length > 10));
   ok('an unknown gap number still points at the runbook', closing(99) === 'HANDOFF.md, gap 99', closing(99));

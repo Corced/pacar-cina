@@ -134,8 +134,8 @@ process; past that the oldest is dropped. A check fills it to prove the cap.
 
 ## What actually works
 
-Each line was proven by a check in `npm run check` (300 assertions: 71 hub,
-101 config, 9 multi-partner, 62 chat, 57 people). "Proven" means an assertion
+Each line was proven by a check in `npm run check` (347 assertions: 71 hub,
+113 config, 9 multi-partner, 97 chat, 57 people). "Proven" means an assertion
 fails if it stops being true.
 
 **The spread - the core claim.** Three partners with different egress addresses
@@ -247,6 +247,33 @@ this hub speaks, an unknown base must start with `glm`, and `GLM_MODEL_EXTRA`
 pins any other name exactly (an exact catalog id wins, so a base that genuinely
 ends in `-think` is never re-split).
 
+**Any role can supply the upstream credential, and the reply says which did.** A
+signed-in visitor contributes a bearer token for `z.ai` or `cn` at
+`POST /upstream/keys`. The gate runs in a fixed order — shape, then the JWT
+claims offline (`exp` in the future, `id`/`sub` captured), then a duplicate
+check, then one signed 5 s probe — and stores the outcome as `ok`, `unverified`,
+`refused` or `dead`, never as "valid" when the probe could not run. The token
+lives in memory only: it is never written to `GLM_STATE_FILE` (the file's
+`tokens` array is the captcha pool, a different and single-use thing), never
+logged, and never returned by any route — `/status.upstreamKeys` and
+`/status/self.myKeys` publish an 8-char id, the source, the contributor, the
+uses and the health, and a check asserts the token string appears in neither.
+The chat forward prefers a pool token for the destination source over
+`GLM_UPSTREAM_KEY`, retries once with the next credential when the upstream
+refuses a pool one (`401/403/429`), holds that token dead for ten minutes, and
+labels the answer `x-glm-key: pool | pool-unverified | env | none`.
+
+**Egress can go through SOCKS5 and always says so.** `server/socks5.mjs` is a
+hand-written client (no dependencies): the chat forward and the key probe take a
+route per call from `GLM_EGRESS_ROUTES`, a failed handshake marks that route
+dead for `GLM_EGRESS_DEAD_MS` and retries once on the next live route, and with
+every route dead the call still goes out — direct, labelled
+`x-glm-egress: direct-fallback`, one log line rather than one per request.
+Captcha verification and the donation exchange stay direct on purpose, because
+the widget breaks behind a proxy. What it is not: a Tor client (point a route at
+a local Tor SOCKS port and only the address changes) and not volunteer routing —
+a user's offered IP is reported, never used.
+
 **A conversation resumes, and only for its own caller.** The hub mints the
 `chat_id`, returns it as `x-glm-chat`, and continues that conversation when the
 id comes back — replaying the turns it relayed (`GLM_CHAT_KEEP_CHARS`, 6000,
@@ -289,11 +316,44 @@ TLS in front of the hub before anyone signs in from another machine. The session
 cookie is not a key either — it is a random id the server looks up, so a leaked
 cookie cannot be replayed as a key after revocation. The minted pool entries are
 the one thing that cannot be hashed at all: they are live captcha parameters
-that must be replayed to upstream verbatim. They stay in memory, expire in half
-an hour, and are never written to disk — which is why gap 4 keeps them out of
-the state file.
+that must be replayed to upstream verbatim, so they are written as they are —
+but only while they live (inside their half-hour TTL), only in the same `0600`
+file, and only when `GLM_STATE_FILE` is set. Bearer tokens contributed to the
+shared upstream pool are the opposite: an account credential that is never
+written anywhere, by design.
 
 ---
+
+## What has been closed
+
+Each record names the date, the command, and the evidence - a gap is deleted
+here only when a check can fail if the behaviour breaks.
+
+**2026-11-22 - the minted-token pool survives a restart** (was gap 4).
+`loadState`/`saveState` carry a `tokens` array beside `people` in the same
+`0600` document: written on mint, on consume, on refund, and only when
+`sweepPool` actually moves something; filtered to entries still inside their
+TTL; dropped on load when already expired, with the count logged as
+`pool: N token(s) loaded ..., M expired on the way`. Sessions, jobs, the donation
+ledger, the chat ledger and contributed bearer tokens stay in memory on purpose.
+Proof: `check-config.mjs` section G, 12 assertions - two params minted over the
+real socket and back after a restart with the same ids, an expired entry not
+counted and counted as expired, a people-only file still loading. Run:
+`node check-config.mjs` -> `config check: all expectations met`, exit 0.
+
+**2026-11-22 - egress can go through SOCKS5** (was gap 5).
+`server/socks5.mjs` is a hand-written client (no auth, domain CONNECT, no
+dependencies); the chat forward and the upstream-key probe choose a route per
+call, a failed handshake marks that route dead for `GLM_EGRESS_DEAD_MS` and
+retries once on the next live route, and every chat reply carries
+`x-glm-egress: proxy|tor|direct|direct-fallback`. `POST /captcha/verify` and the
+donation exchange stay direct, because the captcha breaks behind a proxy. No Tor
+client ships - a real circuit only changes the address. Proof: `check-chat.mjs`
+phase 7, 11 assertions against an in-file SOCKS5 stub that records the CONNECT
+target and forwards - a routed call labelled `proxy`, a route that cannot
+handshake still succeeding labelled `direct-fallback`, a dead route not dialled
+twice, `/status.egress` reporting routes and dead. Run: `node check-chat.mjs` ->
+97 ok, 0 fail, exit 0.
 
 ## What is not done yet
 
@@ -322,15 +382,21 @@ the next person than silence.
 
 The whole path is proven against a local stub instead of an unreachable host:
 `GLM_UPSTREAM` really redirects the destination (the source in the model id
-still picks the path, so `cn/…` keeps its own endpoint), the key rides as a
-bearer credential, `x-signature` is a real HMAC over the flattened prompt, and
-the suffix features arrive in the reference projects' `features` shape
-(`check-chat.mjs`, 62 assertions). But it has **never made a successful call to
-chat.z.ai or chatglm.cn**, because no credential was ever supplied.
+still picks the path, so `cn/…` keeps its own endpoint), the credential rides as
+a bearer token, `x-signature` is a real HMAC over the flattened prompt, and the
+suffix features arrive in the reference projects' `features` shape
+(`check-chat.mjs`, 97 assertions). But it has **never made a successful call to
+chat.z.ai or chatglm.cn**, because no real credential has been tried.
 
-_Close it by:_ setting `GLM_UPSTREAM` and `GLM_UPSTREAM_KEY` to a real account,
-then asserting a completion comes back. Until then treat the happy path as
-untested against the real service.
+The credential has two sources now, and neither one is the operator's alone: a
+signed-in visitor can contribute a bearer token to the shared pool
+(`POST /upstream/keys`, validated by shape, then JWT claims offline, then one
+signed probe), and `GLM_UPSTREAM_KEY` remains the environment's own. Which one
+answered is on every reply as `x-glm-key: pool | pool-unverified | env | none`.
+
+_Close it by:_ contributing a real token (or setting `GLM_UPSTREAM` and
+`GLM_UPSTREAM_KEY`) and asserting a completion comes back. Until then treat the
+happy path as untested against the real service.
 
 Quickest path: with those two variables set, `node doctor.mjs live` does the
 hub start, the call and the verdict for you (steps 2 and 3 below), prints
@@ -358,10 +424,12 @@ The steps below are still what you record.
      -d '{"model":"z.ai/glm-5.3","messages":[{"role":"user","content":"say ok"}]}'
    ```
 4. **What a pass looks like:** `HTTP/1.1 200`, a JSON body with a completion,
-   and the response header `x-glm-pool: spent` (or `empty` if the pool had
-   nothing — that is labelled, not hidden). A `502` means unreachable, a `501`
-   means the variable never arrived, and an upstream error body means the
-   credential or signature was refused — record the exact code and message.
+   `x-glm-key` naming the credential that answered (`pool`, `pool-unverified`,
+   `env` or `none`), `x-glm-pool: spent` (or `empty` if the pool had nothing —
+   that is labelled, not hidden) and `x-glm-egress` saying whether the call went
+   `direct` or through a route. A `502` means unreachable, a `501` means no
+   destination was configured, and an upstream error body means the credential or
+   signature was refused — record the exact code and message.
 5. Two outcomes are legitimate and both should be recorded: the upstream may
    accept a call with no `captcha_verify_param` (then gap 1 is closable alone),
    or it may insist on one (then run gap 2 first and repeat this step with a
@@ -444,63 +512,7 @@ command per suffix. What the reply *means* is still the judgement call in step 2
    feature visibly fired. Then `GET /v1/models` stops needing the
    `declared_only: true` label for that source — but only then.
 
-### 4. Everything outside the people directory is still memory
-
-The **people directory is now a file** (`GLM_STATE_FILE`): created people, their
-roles and their key hashes survive a restart, and a revocation survives it too.
-The seeded superadmin is in the same file, so its key survives a restart without
-`GLM_SUPERADMIN` being set. That was the only part worth keeping. The rest stays
-in memory on purpose: pool entries are captcha params that expire in half an
-hour, so writing them to disk is a liability with no payoff, and sessions dying
-on restart is a feature rather than a bug.
-
-_Close it by:_ only if you disagree — a `GLM_STATE_FILE`-backed pool and
-donation log would be the same `savePeople()` pattern, at the cost of holding
-short-lived credentials on disk.
-
-1. Decide first, because this is a deliberate refusal rather than a missing
-   feature: what does a restart currently cost you that a file would fix? If the
-   answer is "the pool has to refill", note that refilling is what the partner
-   browsers are for and it takes minutes, while a file would put live captcha
-   params on disk for anyone with read access to that path.
-2. If you still want it: copy the `loadPeople`/`savePeople` pair in
-   `server/hub.mjs` for `state.tokens`, call it from `consumeToken`, `sweepPool`
-   and the mint path, and refuse to load entries whose `expiresAt` has passed.
-3. Add to `check-config.mjs`: write two entries, restart the hub, assert they
-   are back, then assert an expired one is not. That is the only way this change
-   is safe — a stale param on disk is worse than an empty pool.
-
-### 5. Egress routing is a toggle; there is no Tor
-
-A user can offer their IP and the setting is remembered, but **no traffic is
-routed through it**, and there is no Tor client — only a row in the panel.
-
-_Close it by:_ a real routing decision per outbound call, then a SOCKS5 client.
-Note: **none of the three reference projects has Tor**, so there is nothing to
-copy. The nearest pattern is D3-vin's dead-proxy TTL bookkeeping, and its
-`proxy.txt` one-address-per-line shape suits a circuit list.
-
-1. Pick the seam: the chat forward in `server/hub.mjs` uses `fetch`, and Node's
-   `fetch` takes no proxy option. Either move that one call to `https.request`
-   with a custom `createConnection`, or keep `fetch` and pass a dispatcher — but
-   the second needs an `undici` import, which breaks the zero-dependency rule.
-   The first is the honest option: a hand-written SOCKS5 client is a CONNECT
-   handshake and a socket pump.
-2. Implement it as one module in `server/` (no dependencies), and make the
-   routing decision per request: `state.egress` says whether a user offered an
-   exit, the source's policy says whether captcha traffic is exempt (the
-   reference projects keep the captcha widget direct because it breaks behind
-   proxies), and a dead route is marked dead with a TTL before it is retried.
-3. Prove it without Tor: add a SOCKS5 stub to `check-chat.mjs` that accepts the
-   handshake, records the CONNECT target, and forwards to the same local
-   upstream stub the file already runs. Assert the chat call reached the target
-   _through_ the stub, and that a route marked dead is skipped on the next call.
-   That check is the whole feature; a real Tor circuit only changes the address.
-4. Record: which calls now route, what the failure policy is, and what happens
-   when every route is dead (it must be a labelled direct call or a refusal,
-   never a silent one).
-
-### 6. Two behaviours are unverified
+### 4. Two behaviours are unverified
 
 - **Background-tab survival.** The silent-oscillator technique is reproduced
   faithfully; whether it actually keeps the tab alive is unobserved.
@@ -525,7 +537,7 @@ _Close them by:_ a long-run tab test, and a pixel comparison at 390 px.
    from the same method at 1440 and 768). A single number with no diff image is
    not evidence — attach or name the file next to the note.
 
-### 7. Only one token source is modelled end to end
+### 5. Only one token source is modelled end to end
 
 Both `chat.z.ai` and `chatglm.cn` have origins and model ids, and the redirect
 keeps each one's own path — but the collector work and the reference projects
@@ -652,8 +664,8 @@ Nine suites and the doctor's self-test, all must exit 0:
 | `check-links.mjs`     | 37 links + 6 anchors | every local reference **and** every `#anchor`, in-page and cross-page                                  |
 | `check-hub.mjs`       | 71                   | routes, auth, donations, the donation cap, verification, nav, gate, `/status/self`                     |
 | `check-hub-multi.mjs` | 9                    | the even spread across three partners                                                                  |
-| `check-config.mjs`    | 101                  | env-driven config, deployment addressing, role separation, server-side session expiry, the chat page    |
-| `check-chat.mjs`      | 62                   | forwarding, request signing, pool spend and refund, feature defaults, empty-pool labelling, the per-caller 429, the model rule, the conversation tracer |
+| `check-config.mjs`    | 113                  | env-driven config, deployment addressing, role separation, server-side session expiry, the chat page, a pool that survives a restart |
+| `check-chat.mjs`      | 97                   | forwarding, request signing, pool spend and refund, feature defaults, empty-pool labelling, the per-caller 429, the model rule, the conversation tracer, the contributed-key gate, SOCKS5 routing and its labelled fallback |
 | `check-people.mjs`    | 57                   | create / revoke / rotate, live sessions and sockets dropped, the state file, hashing at rest, the seeded superadmin across a restart, a v1 file upgraded |
 | `check-docs.mjs`      | 20                   | this note and the README against the tree: settings, paths, stale claims, the gap-list floor, the .env template |
 | `doctor.mjs --self-test` | 9                | the report reads this note honestly: gap count, a closing step per gap, a key never printed, 200 the only "proven" |

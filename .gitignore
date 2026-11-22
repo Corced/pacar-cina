@@ -13,7 +13,7 @@ dist/
 # Reference-project archives, downloaded by `node fetch-repos.mjs`.
 # Research material; never published, never needed at runtime.
 .repos/
-
+diagram.png
 # Zero runtime dependencies, but a stray `npm install` should not be committed.
 node_modules/
 

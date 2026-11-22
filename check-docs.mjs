@@ -82,10 +82,11 @@ for (const [what, re] of stale) {
 
 /* ── the gap list must not shrink by accident ──
  * 9 gaps originally; the chat-forwarding and pool-consumer work closed two,
- * then runtime revocation closed one more. A fixed gap is removed on purpose —
- * this number is the tripwire, so lower it deliberately and say why. */
+ * runtime revocation closed one more, and the durable pool plus SOCKS5 egress
+ * closed two on 2026-11-22 (see "What has been closed"). A fixed gap is removed
+ * on purpose — this number is the tripwire, so lower it deliberately and say why. */
 const numbered = (note.match(/^### \d+\. /gm) || []).length;
-check(numbered >= 7, 'the note lists the open gaps', numbered + ' numbered gaps');
+check(numbered >= 5, 'the note lists the open gaps', numbered + ' numbered gaps');
 
 /* ── README and the note must agree that roles are separated ── */
 check(readme.includes('Roles do not share pages'),
@@ -95,7 +96,7 @@ check(note.toLowerCase().includes('hiding a link is not access control'),
 
 /* ── the note must name what would finish each gap, not just complain ── */
 const closers = (note.match(/Close (?:it|them) by:/g) || []).length;
-check(closers >= 6, 'most gaps name what would close them',
+check(closers >= 5, 'most gaps name what would close them',
   closers + ' closing hints for ' + numbered + ' gaps');
 
 console.log(failures === 0

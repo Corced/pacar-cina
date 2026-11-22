@@ -45,9 +45,14 @@
    *     lastStatus?: number, poolSpent?: number, throttled?: number
    *   },
    *   chatLimit?: { inFlight: number, concurrency: number },
+   *   egress?: {
+   *     mode?: string, routes?: number, dead?: number,
+   *     lastError?: string | null, note?: string
+   *   },
    *   donationLimit?: { verifying: number, concurrency: number, throttled?: number },
    *   chatLedger?: { recent?: { id: string, who?: string, turns?: number }[] },
    *   captcha?: { checked?: number, valid?: number, invalid?: number },
+   *   upstreamKeys?: UpKeyStats,
    *   features?: { [k: string]: boolean },
    *   models?: string[],
    *   partners?: Partner[]
@@ -69,6 +74,19 @@
   /** @typedef {{
    *   status: string, kind: string, fp: string, person?: string, checkedAt?: number
    * }} Donation */
+
+  /** One row of the shared upstream-token pool. Never carries the token itself. */
+  /** @typedef {{
+   *   id: string, source: string, addedBy?: string, at?: number, uses?: number,
+   *   lastUsed?: number | null, health: string, jwt?: boolean
+   * }} UpKey */
+
+  /** /status.upstreamKeys: counts, then the same metadata rows. */
+  /** @typedef {{
+   *   total?: number, bySource?: { [k: string]: number },
+   *   healthy?: number, dead?: number, unverified?: number, refused?: number,
+   *   uses?: number, rows?: UpKey[], envKey?: string, storage?: string, note?: string
+   * }} UpKeyStats */
 
   /** window plus the one thing this page reads off it. */
   /** @typedef {Window & { GLM_HUB_URL?: string }} AdminWindow */
@@ -281,6 +299,33 @@
     if (d.chatLimit) {
       setText('u-inflight', d.chatLimit.inFlight + ' / ' + d.chatLimit.concurrency);
     }
+
+    // Egress: read-only on purpose. The mode and the routes are the hub's
+    // environment — nothing on this page can change them, so nothing here
+    // pretends to. proxy/tor read as active, direct as neutral ordinary state.
+    if (d.egress) {
+      var eg = d.egress;
+      var egressMode = String(eg.mode || '');
+      var active = egressMode === 'proxy' || egressMode === 'tor';
+      var modeEl = $('e-mode');
+      if (modeEl) {
+        modeEl.className = 'pill' + (active ? ' ok' : egressMode === 'direct' ? '' : ' warn');
+        modeEl.textContent = '';
+        var eDot = document.createElement('span');
+        eDot.className = 'dot' + (active ? ' on' : '');
+        modeEl.appendChild(eDot);
+        modeEl.appendChild(document.createTextNode(egressMode || 'not reported'));
+      }
+      setText('e-routes', eg.routes);
+      setText('e-dead', eg.dead);
+      setText('e-note', eg.note);
+      var errBox = $('e-err');
+      if (errBox) {
+        // The hub's own words, never a diagnosis of our own.
+        errBox.textContent = eg.lastError ? 'Last egress error: ' + eg.lastError : '';
+        errBox.hidden = !eg.lastError;
+      }
+    }
     if (d.donationLimit) {
       setText('d-verifying', d.donationLimit.verifying + ' / ' + d.donationLimit.concurrency);
       setText('d-throttled', d.donationLimit.throttled);
@@ -297,6 +342,9 @@
       setText('cv-valid', d.captcha.valid);
       setText('cv-invalid', d.captcha.invalid);
     }
+
+    // The shared upstream-token pool: counts, then metadata rows. Never a token.
+    if (d.upstreamKeys) fillUpKeys(d.upstreamKeys);
 
     if (d.pool) {
       var p = d.pool;
@@ -536,6 +584,178 @@
       .catch(function () { /* no hub: leave the shape */ });
   }
 
+  /* ── shared upstream bearer tokens ──────────────────────────────
+   * The gate answers with metadata only: an id, a source, a health. The token
+   * itself comes back nowhere, so nothing here may echo one — the input is
+   * cleared the moment the gate answers and the notice area prints the gate's
+   * own lines, verbatim, rather than a sentence of our own invention. */
+
+  /** @param {UpKeyStats} k */
+  function fillUpKeys(k) {
+    setText('uk-total', k.total != null ? k.total : '—');
+    var by = k.bySource || {};
+    setText('uk-sources', (by['z.ai'] || 0) + ' z.ai · ' + (by.cn || 0) + ' cn');
+    setText('uk-uses', k.uses != null ? k.uses : '—');
+    setText('uk-env', k.envKey);
+    setText('uk-storage', k.storage);
+    setText('uk-ok', 'ok ' + (k.healthy || 0));
+    setText('uk-unverified', 'unverified ' + (k.unverified || 0));
+    setText('uk-dead', 'dead ' + (k.dead || 0));
+    setText('uk-refused', 'refused ' + (k.refused || 0));
+    if (Array.isArray(k.rows)) fillUpRows(k.rows);
+  }
+
+  /* ok / unverified / dead / refused are the whole vocabulary. `unverified` is
+   * blue and carries a tooltip on purpose: it is "not yet proven", never
+   * "valid", and a colour that reads as success would be a lie. */
+  /** @param {string} h @returns {HTMLElement} */
+  function healthPill(h) {
+    var el = document.createElement('span');
+    el.className = 'pill ' + (h === 'ok' ? 'ok'
+      : h === 'dead' || h === 'refused' ? 'bad'
+        : h === 'unverified' ? 'info' : '');
+    el.textContent = h || '—';
+    if (h === 'unverified') el.title = 'not yet proven: nothing has checked this token';
+    return el;
+  }
+
+  /** @param {UpKey[]} rows */
+  function fillUpRows(rows) {
+    var body = $('uk-body');
+    if (!body) return;
+    body.textContent = '';
+    if (!rows.length) {
+      var empty = document.createElement('tr');
+      var td0 = document.createElement('td');
+      td0.colSpan = 7;
+      td0.style.color = 'var(--mut)';
+      td0.textContent = 'none contributed';
+      empty.appendChild(td0);
+      body.appendChild(empty);
+      return;
+    }
+    var box = body;   // the callback below is a separate function to the checker
+    rows.forEach(function (k) {
+      var tr = document.createElement('tr');
+      /** @type {[string | number | HTMLElement, string][]} */
+      var cells = [
+        [k.id, 'mono'],
+        [k.source, ''],
+        [k.addedBy || '—', ''],
+        [k.uses == null ? '—' : k.uses, ''],
+        [k.lastUsed ? new Date(k.lastUsed).toISOString().slice(11, 19) + ' UTC' : '—', 'mono'],
+        [healthPill(k.health), '']
+      ];
+      cells.forEach(function (cell) {
+        var td = document.createElement('td');
+        if (cell[1]) td.className = cell[1];
+        if (cell[0] instanceof Element) td.appendChild(cell[0]);
+        else td.textContent = String(cell[0]);
+        tr.appendChild(td);
+      });
+
+      var acts = document.createElement('td');
+      acts.style.whiteSpace = 'nowrap';
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn danger';
+      b.textContent = 'Revoke';
+      b.addEventListener('click', function () { revokeUpKey(k.id); });
+      acts.appendChild(b);
+      tr.appendChild(acts);
+      box.appendChild(tr);
+    });
+  }
+
+  /** @param {string[]} lines @param {string} kind */
+  function upSay(lines, kind) {
+    var box = $('uk-say');
+    if (!box) return;
+    var out = box;   // the callback below is a separate function to the checker
+    out.textContent = '';
+    var color = kind === 'bad' ? 'var(--bad)' : kind === 'ok' ? 'var(--ok)' : 'var(--mut)';
+    lines.forEach(function (l) {
+      var row = document.createElement('div');
+      row.textContent = l;
+      row.style.color = color;
+      out.appendChild(row);
+    });
+  }
+
+  /** @param {any} d @returns {string[]} */
+  function checksOf(d) {
+    if (!d || !Array.isArray(d.checks)) return [];
+    return d.checks.filter(function (/** @type {unknown} */ x) { return typeof x === 'string'; });
+  }
+
+  /* The hub's own reason, quoted; nothing invented. A 409 also names the row
+   * that already holds the token, which is useful and still metadata. */
+  /** @param {number} status @param {any} d @returns {string} */
+  function keysReason(status, d) {
+    var e = d && d.error;
+    var why = typeof e === 'string' ? e : (e && (e.message || e.type)) || '';
+    if (status === 409) {
+      return why + (d && d.id ? ' (id ' + d.id + ', health ' + d.health + ')' : '');
+    }
+    return why || ('HTTP ' + status);
+  }
+
+  function contributeUpKey() {
+    var src = select('uk-source');
+    var box = input('uk-key');
+    var source = src ? src.value : 'z.ai';
+    var key = box ? box.value.trim() : '';
+    if (!key) { upSay(['nothing to send — paste a token first'], 'bad'); return; }
+    fetch(HUB + '/upstream/keys', {
+      method: 'POST',
+      credentials: 'same-origin',          // the session cookie must ride along
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ source: source, key: key }),
+    })
+      .then(function (r) { return r.json().then(function (d) { return { s: r.status, d: d }; }); })
+      .then(function (o) {
+        var d = o.d || {};
+        if (o.s === 200 && d.ok) {
+          if (box) box.value = '';         // a token never stays on screen
+          upSay(['held as ' + d.id + ' for ' + d.source + ' — health: ' + d.health].concat(checksOf(d)), '');
+          log('upstream key ' + d.id + ' (' + d.source + ') held, health ' + d.health);
+          refresh();
+          return;
+        }
+        upSay([keysReason(o.s, d)].concat(checksOf(d)), 'bad');
+        log('upstream key refused (HTTP ' + o.s + '): ' + keysReason(o.s, d));
+      })
+      .catch(function (e) {
+        upSay(['no hub answered — nothing was sent (' + (e instanceof Error ? e.message : String(e)) + ')'], 'bad');
+        log('upstream key not sent: no hub answered');
+      });
+  }
+
+  /** @param {string} id */
+  function revokeUpKey(id) {
+    if (!window.confirm('Revoke upstream token ' + id + '? Any chat call spending it stops at once.')) return;
+    fetch(HUB + '/upstream/keys/revoke', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: id }),
+    })
+      .then(function (r) { return r.json().then(function (d) { return { s: r.status, d: d }; }); })
+      .then(function (o) {
+        if (o.s !== 200) {
+          upSay(['revoke refused: ' + keysReason(o.s, o.d || {})], 'bad');
+          log('upstream key ' + id + ' not revoked (HTTP ' + o.s + ')');
+          return;
+        }
+        upSay(['revoked ' + id + ' — the hub dropped it from memory'], 'ok');
+        log('upstream key ' + id + ' revoked (' + (o.d && o.d.removed ? 'removed' : 'gone') + ')');
+        refresh();
+      })
+      .catch(function (e) {
+        upSay(['revoke not sent — no hub answered (' + (e instanceof Error ? e.message : String(e)) + ')'], 'bad');
+      });
+  }
+
   /** @param {string} reason */
   function noHub(reason) {
     hasHub = false;
@@ -622,15 +842,6 @@
     });
   });
 
-  document.querySelectorAll('[data-egress]').forEach(function (node) {
-    var el = /** @type {HTMLElement} */ (node);
-    el.addEventListener('click', function () {
-      var on = el.textContent !== 'ON';
-      setOn(el, on);
-      log('egress ' + el.dataset.egress + ' -> ' + (on ? 'on' : 'off') + (hasHub ? '' : ' (local only)'));
-    });
-  });
-
   var btn = button('a-refresh');
   if (btn) btn.addEventListener('click', function () { refresh(); log('manual refresh'); });
 
@@ -663,6 +874,11 @@
   if (addPerson) addPerson.addEventListener('click', createPerson);
   var nameIn = input('pp-name');
   if (nameIn) nameIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') createPerson(); });
+
+  // The upstream-token form: submit only, so the value is read once and never
+  // kept in a variable that outlives the request.
+  var ukForm = $('uk-form');
+  if (ukForm) ukForm.addEventListener('submit', function (e) { e.preventDefault(); contributeUpKey(); });
   // Creating is superadmin-only, so an admin sees a disabled control with the
   // reason instead of a button that silently 403s.
   function applyRoleGates() {

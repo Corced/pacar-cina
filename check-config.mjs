@@ -10,11 +10,17 @@
  * Then the same hub is asked for its pages, to prove the gate redirects a
  * stranger to the login page while leaving that page (and its assets) public.
  *
+ * Last, GLM_STATE_FILE: the minted-token pool must come back after a restart,
+ * expired entries must not, and a file written before the pool was persisted
+ * must still load its people directory.
+ *
  * No dependencies, nothing outside this process, everything in memory.
  */
 import { spawn } from 'node:child_process';
+import { readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -103,7 +109,13 @@ async function signIn(base, role, key) {
   };
 }
 
-const KEYS = { GLM_KEYS: 'partner:c-partner,admin:c-admin', SESSION_SECRET: 'check-config-secret' };
+const KEYS = {
+  GLM_KEYS: 'partner:c-partner,admin:c-admin',
+  SESSION_SECRET: 'check-config-secret',
+  // No ambient state file: these checks must not read or write the operator's,
+  // and the pool cases below set their own explicitly.
+  GLM_STATE_FILE: '',
+};
 
 try {
   /* ── A. nothing configured: the captured defaults must survive ────────── */
@@ -522,6 +534,137 @@ try {
     check('without GLM_TRUST_PROXY a forged X-Forwarded-Host is ignored',
       cfg.deploy.base === base, cfg.deploy.base);
   });
+/* ── G. the pool survives a restart, in the same state file ──────────────
+   * The people directory already reloads; the minted params must too, or a
+   * restart throws away work that is still inside its TTL. One document, one
+   * file: the pool rides beside the people array, and a file written before
+   * that existed (no `tokens` key) stays an empty pool rather than an error. */
+  const POOL_FILE = join(tmpdir(), 'glm-config-pool-' + process.pid + '.json');
+  const DEAD_FILE = join(tmpdir(), 'glm-config-pool-dead-' + process.pid + '.json');
+  const OLD_FILE = join(tmpdir(), 'glm-config-people-' + process.pid + '.json');
+  const POOL_ENV = {
+    ...KEYS,
+    GLM_STATE_FILE: POOL_FILE,
+    TOKEN_TARGET: '2',          // exactly two entries, then the hub stops asking
+    TOKEN_LOWWATER: '2',
+    PUMP_MS: '200',
+    GLM_SWEEP_MS: '60000',      // the timer must not prune behind the assertions
+  };
+  let idsBefore = '';
+  try {
+    for (const f of [POOL_FILE, DEAD_FILE, OLD_FILE]) {
+      try { rmSync(f, { force: true }); } catch { /* fine */ }
+      try { rmSync(f + '.tmp', { force: true }); } catch { /* fine */ }
+    }
+
+    const minted = [];
+    await withHub(PORT_A, POOL_ENV, async (base) => {
+      const admin = await signIn(base, 'admin', 'c-admin');
+      const partner = await signIn(base, 'partner', 'c-partner');
+      const ws = new WebSocket('ws://127.0.0.1:' + PORT_A + '/minter/ws', {
+        headers: { cookie: partner.cookie },
+      });
+      await new Promise((res, rej) => {
+        ws.onopen = () => res();
+        ws.onerror = () => rej(new Error('mint socket failed'));
+        setTimeout(() => rej(new Error('mint socket never opened')), 5000);
+      });
+      ws.onmessage = (ev) => {
+        let m = null;
+        try { m = JSON.parse(ev.data); } catch { return; }
+        if (m.type === 'ping') { ws.send(JSON.stringify({ type: 'pong' })); return; }
+        if (m.type === 'job') {
+          const param = 'pool-param-' + (minted.length + 1);
+          minted.push(param);
+          ws.send(JSON.stringify({ type: 'captcha', id: m.id, param }));
+        }
+      };
+      ws.send(JSON.stringify({ type: 'hello', ip: '203.0.113.20', proto: 2 }));
+
+      for (let i = 0; i < 60 && minted.length < 2; i++) await sleep(100);
+      check('a partner mints two params into the pool', minted.length === 2, 'mints=' + minted.length);
+
+      let staged = null;
+      for (let i = 0; i < 40; i++) {
+        const s = await getJson(base, '/status', admin.cookie);
+        if (s.body && s.body.pool.available === 2) { staged = s.body; break; }
+        await sleep(50);
+      }
+      ws.close();
+      check('both minted params are in the pool before the restart', !!staged,
+        'available=' + String(staged && staged.pool.available));
+      check('/status calls the pool file-backed when a state file is set',
+        !!staged && /file-backed/.test(String(staged.pool.storage)), String(staged && staged.pool.storage));
+
+      const onDisk = JSON.parse(readFileSync(POOL_FILE, 'utf8'));
+      check('the state file carries a tokens array beside the people document',
+        Array.isArray(onDisk.tokens) && onDisk.tokens.length === 2 && Array.isArray(onDisk.people),
+        'tokens=' + (onDisk.tokens || []).length);
+      check('the entries on disk are the params that were minted',
+        (onDisk.tokens || []).map((t) => t.param).sort().join(',') === minted.slice().sort().join(','),
+        JSON.stringify((onDisk.tokens || []).map((t) => t.param)));
+      idsBefore = (onDisk.tokens || []).map((t) => t.id).sort().join(',');
+    });
+
+    /* A fresh process on the same file: the pool must come back by itself. */
+    await withHub(PORT_A, POOL_ENV, async (base) => {
+      const admin = await signIn(base, 'admin', 'c-admin');
+      const after = await getJson(base, '/status', admin.cookie);
+      check('both minted entries are back in /status after a restart',
+        after.body.tokenCount === 2 && after.body.pool.available === 2,
+        'tokenCount=' + String(after.body.tokenCount) + ' available=' + String(after.body.pool.available));
+      const onDisk = JSON.parse(readFileSync(POOL_FILE, 'utf8'));
+      check('and they are the same entries, not freshly minted ones',
+        (onDisk.tokens || []).map((t) => t.id).sort().join(',') === idsBefore,
+        JSON.stringify((onDisk.tokens || []).map((t) => t.id)));
+    });
+
+    /* An entry whose TTL passed is dead to Aliyun; a restart must not raise it. */
+    writeFileSync(DEAD_FILE, JSON.stringify({
+      version: 2,
+      savedAt: Date.now(),
+      people: [],
+      tokens: [
+        { id: 'tok-dead', at: Date.now() - 60000, expiresAt: Date.now() - 30000, partnerId: null, param: 'dead-param', size: 10 },
+        { id: 'tok-live', at: Date.now(), expiresAt: Date.now() + 600000, partnerId: null, param: 'live-param', size: 10 },
+      ],
+    }));
+    await withHub(PORT_A, { ...KEYS, GLM_STATE_FILE: DEAD_FILE }, async (base) => {
+      const admin = await signIn(base, 'admin', 'c-admin');
+      const st = await getJson(base, '/status', admin.cookie);
+      check('an entry whose expiresAt already passed is not counted after a restart',
+        st.body.tokenCount === 1 && st.body.pool.available === 1,
+        'tokenCount=' + String(st.body.tokenCount) + ' available=' + String(st.body.pool.available));
+      check('the drop is counted as expired rather than silent',
+        st.body.pool.expired >= 1, 'expired=' + String(st.body.pool.expired));
+    });
+
+    /* A file from before the pool was persisted: people load, pool is empty. */
+    writeFileSync(OLD_FILE, JSON.stringify({
+      version: 1,
+      people: [{ name: 'alice', role: 'partner', key: 'legacy-alice-key', at: Date.now() - 1000, uses: 0 }],
+    }));
+    await withHub(PORT_A, { ...KEYS, GLM_STATE_FILE: OLD_FILE }, async (base) => {
+      const alice = await signIn(base, 'partner', 'legacy-alice-key');
+      check('a state file with no tokens key still loads its people directory',
+        alice.status === 200, 'HTTP ' + alice.status);
+      const admin = await signIn(base, 'admin', 'c-admin');
+      const people = await getJson(base, '/people', admin.cookie);
+      check('and the panel still lists that person',
+        (people.body.people || []).some((p) => p.name === 'alice'),
+        JSON.stringify((people.body.people || []).map((p) => p.name)));
+      const st = await getJson(base, '/status', admin.cookie);
+      check('a missing tokens key means an empty pool, never an error',
+        st.status === 200 && st.body.pool.available === 0,
+        'available=' + String(st.body.pool.available));
+    });
+  } finally {
+    for (const f of [POOL_FILE, DEAD_FILE, OLD_FILE]) {
+      try { rmSync(f, { force: true }); } catch { /* fine */ }
+      try { rmSync(f + '.tmp', { force: true }); } catch { /* fine */ }
+    }
+  }
+
 } catch (e) {
   console.log('FAIL (exception) ' + (e && e.message));
   failures++;

@@ -103,6 +103,16 @@
 .bar-meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--acc), var(--acc2)); }
 .bar-meter.low i { background: linear-gradient(90deg, var(--warn), #e3b341); }
 
+/* shared upstream-token form: one source, one secret, one button, then the
+   gate's own answer underneath. Same block the partner and user pages carry. */
+.uk-form .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.uk-form select.in { flex: 0 0 88px; width: auto; }
+.uk-form input.in { flex: 1 1 220px; width: auto; min-width: 0; }
+.uk-form .btn { flex: none; }
+.uk-say { margin-top: 10px; font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--mut); }
+.uk-say div { padding: 1px 0; overflow-wrap: anywhere; }
+.uk-say:empty { margin-top: 0; }
+
 .note { font-size: 11.5px; color: var(--mut); margin-top: 10px; line-height: 1.5; }
 .note b { color: #c9d1d9; }
 
@@ -119,4 +129,13 @@ pre.snip {
   .wrap.wide { padding: 16px 12px 50px; }
   .a-head h1 { font-size: 19px; }
   .grid { grid-template-columns: 1fr; }
+  /* A grid item's automatic minimum is its min-content, so one wide table
+     (People, the upstream-token list) used to stretch EVERY card to ~570px on a
+     390px screen and the page clipped the rest — overflow-x is hidden on body,
+     so it could not even be scrolled to. min-width:0 lets each card take the
+     column and lets its own .scroll-x do the scrolling. */
+  .grid > * { min-width: 0; }
+  /* one control per line: side by side, the select squeezed the token box and
+     its placeholder read "never displ…" */
+  .uk-form select.in, .uk-form input.in, .uk-form .btn { flex: 1 1 100%; }
 }

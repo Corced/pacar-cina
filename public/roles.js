@@ -43,6 +43,13 @@ const ROLES = (() => {
   /** What /session answered the first time it was asked, so it is asked once. */
   /** @typedef {{ present: boolean, role: string | null }} HubProbe */
 
+  /** One row of the shared upstream-token pool. Metadata only — the hub never
+   *  returns the token, so nothing here can echo one. */
+  /** @typedef {{
+   *   id: string, source: string, addedBy?: string, at?: number, uses?: number,
+   *   lastUsed?: number | null, health: string, jwt?: boolean
+   * }} UpKey */
+
   /** @type {Promise<HubProbe> | null} */
   let hubProbe = null;
   /** @returns {Promise<HubProbe>} */
@@ -328,6 +335,171 @@ const ROLES = (() => {
       : kind === 'ok' ? 'var(--ok)' : 'var(--mut)';
   }
 
+  /* ── shared upstream bearer tokens ───────────────────────────
+   * The same compact block partner.html and user.html carry. The hub's gate
+   * answers with metadata only — id, source, health — so nothing here may echo
+   * a token: the input is cleared the moment the gate answers, and the notice
+   * area prints the gate's own lines verbatim instead of a sentence of ours. */
+
+  /* ok / unverified / dead / refused are the whole vocabulary. `unverified` is
+   * blue with a tooltip on purpose: not yet proven, never "valid". */
+  /** @param {string} h @returns {HTMLElement} */
+  function healthTag(h) {
+    const el = document.createElement('span');
+    el.className = 'tag ' + (h === 'ok' ? 'ok'
+      : h === 'dead' || h === 'refused' ? 'bad'
+        : h === 'unverified' ? 'info' : 'mut');
+    el.textContent = h || '—';
+    if (h === 'unverified') el.title = 'not yet proven: nothing has checked this token';
+    return el;
+  }
+
+  /** @param {string[]} lines @param {string} kind */
+  function keysSay(lines, kind) {
+    const box = document.getElementById('uk-say');
+    if (!box) return;
+    box.textContent = '';
+    lines.forEach((l) => {
+      const row = document.createElement('div');
+      row.textContent = l;
+      row.style.color = kind === 'bad' ? 'var(--bad)'
+        : kind === 'ok' ? 'var(--ok)' : 'var(--mut)';
+      box.appendChild(row);
+    });
+  }
+
+  /** @param {any} d @returns {string[]} */
+  function checksOf(d) {
+    if (!d || !Array.isArray(d.checks)) return [];
+    return d.checks.filter((/** @type {unknown} */ x) => typeof x === 'string');
+  }
+
+  /* The hub's own reason, quoted; nothing invented. A 409 also names the row
+   * that already holds the token, which is metadata and useful. */
+  /** @param {number} status @param {any} d @returns {string} */
+  function keysReason(status, d) {
+    const e = d && d.error;
+    const why = typeof e === 'string' ? e : (e && (e.message || e.type)) || '';
+    if (status === 409) {
+      return why + (d && d.id ? ' (id ' + d.id + ', health ' + d.health + ')' : '');
+    }
+    return why || ('HTTP ' + status);
+  }
+
+  /** @param {UpKey[]} rows */
+  function fillKeys(rows) {
+    const body = document.getElementById('uk-body');
+    if (!body) return;
+    body.textContent = '';
+    if (!rows.length) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 5;
+      td.style.color = 'var(--mut)';
+      td.textContent = 'nothing of yours is held';
+      tr.appendChild(td);
+      body.appendChild(tr);
+      return;
+    }
+    rows.forEach((k) => {
+      const tr = document.createElement('tr');
+      const id = document.createElement('td');
+      id.className = 'mono';
+      id.textContent = k.id;
+      tr.appendChild(id);
+      const src = document.createElement('td');
+      src.textContent = k.source;
+      tr.appendChild(src);
+      const health = document.createElement('td');
+      health.appendChild(healthTag(k.health));
+      tr.appendChild(health);
+      const uses = document.createElement('td');
+      uses.textContent = String(k.uses == null ? '—' : k.uses);
+      tr.appendChild(uses);
+      const acts = document.createElement('td');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn';
+      b.textContent = 'Revoke';
+      b.addEventListener('click', () => { revokeKey(k.id); });
+      acts.appendChild(b);
+      tr.appendChild(acts);
+      body.appendChild(tr);
+    });
+  }
+
+  /* Only a read the hub actually answered is rendered: a 401 or a static host
+   * leaves the "not read yet" placeholder up rather than claiming "none". */
+  function refreshKeys() {
+    fetch('/status/self', { credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d || !Array.isArray(d.myKeys)) return;
+        fillKeys(d.myKeys);
+      })
+      .catch(() => { /* nothing was read: the placeholder stays a placeholder */ });
+  }
+
+  function contributeKey() {
+    const sel = /** @type {HTMLSelectElement} */ (document.getElementById('uk-source'));
+    const box = /** @type {HTMLInputElement | null} */ (document.getElementById('uk-key'));
+    const key = box ? box.value.trim() : '';
+    if (!key) { keysSay(['nothing to send — paste a token first'], 'bad'); return; }
+    fetch('/upstream/keys', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ source: sel.value, key: key }),
+    })
+      .then((r) => r.json().then((d) => ({ status: r.status, d }), () => ({ status: r.status, d: null })))
+      .then(({ status: code, d }) => {
+        if (code === 200 && d && d.ok) {
+          if (box) box.value = '';       // a token never stays on screen
+          keysSay(['held as ' + d.id + ' for ' + d.source + ' — health: ' + d.health].concat(checksOf(d)), '');
+          log('Contributed an upstream token for ' + d.source + ': held as ' + d.id + ', health ' + d.health + '.');
+          refreshKeys();
+          return;
+        }
+        keysSay([keysReason(code, d)].concat(checksOf(d)), 'bad');
+        log('The hub refused an upstream token: ' + keysReason(code, d) + ' (nothing was stored).');
+      })
+      .catch(() => {
+        keysSay(['No hub on this origin — nothing was sent, and the token was not read anywhere.'], 'bad');
+        log('No hub listening: the upstream token was not sent anywhere.');
+        if (box) box.value = '';
+      });
+  }
+
+  /** @param {string} id */
+  function revokeKey(id) {
+    if (!window.confirm('Revoke upstream token ' + id + '? Any chat call spending it stops at once.')) return;
+    fetch('/upstream/keys/revoke', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: id }),
+    })
+      .then((r) => r.json().then((d) => ({ status: r.status, d }), () => ({ status: r.status, d: null })))
+      .then(({ status: code, d }) => {
+        if (code !== 200) {
+          keysSay(['revoke refused: ' + keysReason(code, d)], 'bad');
+          log('Upstream token ' + id + ' was not revoked (HTTP ' + code + ').');
+          return;
+        }
+        keysSay(['revoked ' + id + ' — the hub dropped it from memory'], 'ok');
+        log('Revoked upstream token ' + id + '.');
+        refreshKeys();
+      })
+      .catch(() => keysSay(['No hub answered — nothing was revoked.'], 'bad'));
+  }
+
+  function mountKeys() {
+    const form = document.getElementById('uk-form');
+    if (!form) return;
+    form.addEventListener('submit', (e) => { e.preventDefault(); contributeKey(); });
+    refreshKeys();
+  }
+
   /* ── partner ───────────────────────────────────────────────── */
   function mountPartner() {
     pill(); armOnGesture(); ip(); startUptime();
@@ -429,6 +601,7 @@ const ROLES = (() => {
         .catch(() => { /* no hub */ });
     }
     refreshContrib();
+    mountKeys();
 
     log('Allowance rises with verified tokens and sessions — and each donation is now checked against Aliyun as it arrives, so "verified" means a real exchange answered.');
   }

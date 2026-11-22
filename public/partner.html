@@ -77,6 +77,34 @@
   </div>
 
   <div class="card">
+    <h2>Lend an upstream bearer token</h2>
+    <p class="note" style="margin-top:0;margin-bottom:10px">Not the captcha values above: this is a full
+    account token for <b>chat.z.ai</b> or <b>chatglm.cn</b>. The hub keeps it in memory, spends it on
+    anyone's chat call in place of its own upstream key, and never returns it to any page.</p>
+    <form class="uk-form" id="uk-form" autocomplete="off">
+      <div class="row">
+        <select class="in uk-src" id="uk-source" aria-label="which upstream the token is for">
+          <option value="z.ai">z.ai</option>
+          <option value="cn">cn</option>
+        </select>
+        <input class="in uk-key" id="uk-key" type="password" autocomplete="off" spellcheck="false"
+               placeholder="paste the token — it is never displayed again">
+        <button class="btn go" id="uk-add" type="submit">Contribute</button>
+      </div>
+    </form>
+    <div class="uk-say" id="uk-say" role="status" aria-live="polite"></div>
+    <div class="tbl-scroll" style="margin-top:12px">
+      <table class="tbl">
+        <thead><tr><th>Token</th><th>Source</th><th>Health</th><th>Uses</th><th></th></tr></thead>
+        <tbody id="uk-body"><tr><td colspan="5" style="color:var(--mut)">not read yet</td></tr></tbody>
+      </table>
+    </div>
+    <p class="note"><b>ok</b> means one 5 s probe got a 2xx from the upstream. <b>unverified</b> means not
+    yet proven — nothing has checked it, so it is not a claim that it works. <b>dead</b> is a 429 hold.
+    A <b>refused</b> token is never stored. Revoking a row drops it from the hub's memory.</p>
+  </div>
+
+  <div class="card">
     <h2>What partner adds over user</h2>
     <ul class="priv">
       <li class="has">Add tokens and sessions — the account-pool unlock</li>

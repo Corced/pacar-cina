@@ -82,7 +82,7 @@ session cookie is one role at a time per browser.
 | Sign in | `login.html`               | **The front door.** `/` redirects here (or to your own page if you are already signed in). The three roles. **user** signs in with no key (open by design); **partner**, **admin** and **superadmin** reveal a key box, plus an optional name box for a person in the directory — the hub refuses a name paired with a key that is not that person's rather than quietly dropping the name. Explains honestly what a session is and what it is not. |
 | User    | `user.html` + `user.js`    | A report, not a control: polls `GET /status/self` every 5 s and shows this address as the hub saw it (is a minter socket from it connected, how many captchas it returned) plus live pool numbers. Solving happens on the minter page; this page says so and links there. |
 | Partner | `partner.html`             | “Lend accounts”. The token/session paste form (currently local-only), contribution counters, same minting ability as everyone.                                                                                                                                  |
-| Admin   | `admin.html`               | The operator panel: status, partner pool (id, IP, role, mints, state), token pool, feature defaults, egress classes, endpoints, activity log, a key box on 401/403.                                                                                             |
+| Admin   | `admin.html`               | The operator panel: status, partner pool (id, IP, role, mints, state), token pool, shared upstream tokens (contribute, health, revoke), feature defaults, a read-only egress panel (mode, routes, dead, last error), endpoints, activity log, a key box on 401/403. |
 | Repos   | `repos.html`               | A dissection of the three reference projects — what each has, what each lacks, and the gap none of them fills (a partner-facing page).                                                                                                                          |
 
 All pages are narrow by design (minter 640 px, repos 700 px, admin 840 px) and
@@ -206,6 +206,9 @@ socket, which is why the pages need no configuration.
 | `POST /people`              | **superadmin** session           | create a person: `{name, role, key?}` → 201 with the key **once**                                                                                                                                                                  |
 | `POST /people/revoke`       | admin session                    | `{name}` → drop the person, their key, live sessions and open sockets, now                                                                                                                                                         |
 | `POST /people/rotate`       | admin session                    | `{name}` → new key returned once, old key and sessions dead immediately                                                                                                                                                            |
+| `POST /upstream/keys`       | any signed-in role               | contribute a bearer token for `z.ai` or `cn`: shape, then JWT claims offline, then one 5 s probe that signs its own prompt. Kept **in memory only**; **409** for a token already held; **400** with the reason for expired, malformed or refused ones; the token is never echoed, logged or written down |
+| `GET /upstream/keys`        | any signed-in role               | metadata rows only — 8-char id, source, contributor, uses, last use, health. Your own rows, or every row as admin. A token never appears here or anywhere else |
+| `POST /upstream/keys/revoke`| the contributor or an admin      | `{id}` → drop that token now; **404** unknown id, **403** somebody else's |
 | `GET /status`               | **admin** session                | the full JSON `admin.js` polls                                                                                                                                                                                                     |
 | `GET /status/self`          | any signed-in role               | the public half: role, port, socket path, pool target, plus `you` (this caller's address, whether a minter socket from it is connected, and how many captchas it returned) and `poolNow` (live tokens/in-flight/online/minted) — what `user.html` polls every 5 s |
 | `POST /features`            | admin session                    | default feature flags applied to **every** chat request; a model suffix turns one on for a single call. `persist_history` is deliberately absent - the hub keeps no conversation store, so a switch for it could never do anything |
@@ -233,7 +236,7 @@ state file belongs outside the repo for the same reason.
 | `GLM_SUPERADMIN`                  | - (key generated, printed once)                   | the seeded superadmin's key; pinning it is one way to survive a restart - the state file is the other                                                                                                                                                           |
 | `GLM_SUPERADMIN_NAME`             | `root`                                            | the seeded superadmin's name, which rides on its sessions and donations                                                                                                                                                                                        |
 | `GLM_PEOPLE`                      | — (no people)                                     | per-person keys as `name=role:key` triples, e.g. `alice=partner:s3cret,bob=admin:s3cret2`; a person's name then rides on their sessions, mint sockets and donations. Always wins over `GLM_STATE_FILE`, so an env-pinned person cannot be revoked from the API |
-| `GLM_STATE_FILE`                  | - (memory only)                                   | a JSON file the people directory and the seeded superadmin are written to on every change and read on start. A revoked person stays revoked across a restart. It holds names, salts and scrypt hashes - never a key - and is still written `0600`                |
+| `GLM_STATE_FILE`                  | - (memory only)                                   | a JSON file the people directory, the seeded superadmin and the minted-token pool are written to on every change and read on start. A revoked person stays revoked and unexpired pool entries come back across a restart. It holds names, salts and scrypt hashes - never a person's key - plus single-use captcha params while they live, and is written `0600`                |
 | `GLM_CAPTCHA_SCENE`               | `no8xfe`                                          | the Aliyun scene id the widget is built with                                                                                                                                                                                                                   |
 | `GLM_CAPTCHA_PREFIX`              | `didk33e0`                                        | the widget's element-id prefix                                                                                                                                                                                                                                 |
 | `GLM_CAPTCHA_APPKEY`              | `FFFF0N00000000007EC0`                            | the public Aliyun appkey (public by design — the widget ships it to every browser)                                                                                                                                                                             |
@@ -247,8 +250,11 @@ state file belongs outside the repo for the same reason.
 | `GLM_CN_ORIGIN` / `GLM_CN_PATH`   | `https://chatglm.cn` / `/api/v1/chat/completions` | where `cn/…` ids go                                                                                                                                                                                                                                            |
 | `GLM_MODEL_EXTRA`                 | — (the four captured bases)                       | extra model bases, comma-separated; they are appended after the captured four and expand into the catalog                                                                                                                                                      |
 | `GLM_UPSTREAM`                    | — (chat 501s)                                     | where `/v1/chat/completions` forwards; the source in the model id still picks the path, so `cn/…` keeps `/api/v1` whatever the origin                                                                                                                          |
-| `GLM_UPSTREAM_KEY`                | — (no header)                                     | optional bearer credential for the upstream                                                                                                                                                                                                                    |
+| `GLM_UPSTREAM_KEY`                | — (no header)                                     | optional bearer credential for the upstream; a verified token in the shared pool wins over it for its own source, and `x-glm-key` says which one answered                                                                                                                                                                       |
 | `GLM_UPSTREAM_TIMEOUT`            | `30000`                                           | upstream call deadline in ms                                                                                                                                                                                                                                   |
+| `GLM_EGRESS_ROUTES`               | — (direct)                                        | comma-separated `host:port` SOCKS5 endpoints (no auth) for the chat forward and the upstream-key probe; empty means every call goes direct. Captcha verification and donations always stay direct                                                                 |
+| `GLM_EGRESS_MODE`                 | `proxy` when routes exist, else `direct`          | `direct` forces routing off even with routes configured; `tor` uses the same client and only changes the label and the address                                                                                                                                  |
+| `GLM_EGRESS_DEAD_MS`              | `60000`                                           | how long a route that failed its handshake is skipped before it is tried again                                                                                                                                                                                 |
 | `GLM_CHAT_CONCURRENCY`            | `4`                                               | how many `/v1/chat/completions` one caller may hold at once; the next one gets **429**                                                                                                                                                                         |
 | `GLM_CHAT_COOLDOWN_MS`            | `5000`                                            | how long a caller waits after being refused, in ms; `0` turns the wait off and leaves only the concurrency cap                                                                                                                                                 |
 | `GLM_CHAT_KEEP_CHARS`             | `6000`                                            | characters of one conversation the hub replays when a caller continues it with only a new message; the oldest turns fall off first                                                                                                                             |
@@ -349,14 +355,20 @@ shares one person's key is that person.
   recorded and then spent as-is on the next chat call; `/status` says so in
   `pool.note` instead of implying the params are good. Only donations and an
   explicit `POST /captcha/verify` are exchanged with Aliyun.
-- **It does not forward chat without a destination.** With `GLM_UPSTREAM` set it
-  forwards, signs, and spends a pool entry; with nothing set the endpoint answers
-  501 honestly rather than faking 200s. No credential ships, so a plain checkout
-  refuses.
-- **It does not persist the pool.** People survive a restart when
-  `GLM_STATE_FILE` is set, but pool entries are captcha params that expire in
-  half an hour — writing them to disk would be a liability, not a feature. A
-  restart still empties the pool and invalidates sessions.
+- **It does not forward chat without a credential it can use.** With `GLM_UPSTREAM` set it
+  forwards, signs, and spends a pool entry; the credential is a contributed
+  upstream token (the shared pool) or `GLM_UPSTREAM_KEY`, and the reply says which
+  answered (`x-glm-key: pool|pool-unverified|env|none`). With nothing set the
+  endpoint answers 501 honestly rather than faking 200s. No credential ships with
+  the repo, so a plain checkout refuses until one is contributed.
+- **It persists the pool when you ask it to.** With `GLM_STATE_FILE` set, minted
+  params survive a restart until they expire (the file is `0600`, filtered to
+  entries still inside their TTL, and expired ones are dropped on load), and the
+  people directory survives with them. What it deliberately does not keep: bearer
+  tokens contributed to the shared upstream pool (an account credential is never
+  written down — only a single-use captcha param is), sessions, jobs, the
+  donation ledger or the chat ledger. A restart still signs everyone out and
+  empties those.
 - **It does not have accounts.** Keys are per-person (`GLM_PEOPLE`, or people
   created through `POST /people`), with runtime revocation and rotation, but
   there is no sign-up, no password store and no password reset — the key _is_
@@ -485,8 +497,13 @@ cookie jar.
   `TOKEN_TARGET`, and the chat path now takes the oldest entry, attaches it to
   the upstream call as `captcha_verify_param`, and returns it unspent on a
   401/403/429. What remains unproven is the call to the live service.
-- **Egress offer is a toggle only.** No traffic is routed through a volunteer's
-  IP, and there is no Tor client.
+- **Egress is a SOCKS5 client, not a volunteer network.** Upstream chat calls and
+  the upstream-key probe can be routed through a `GLM_EGRESS_ROUTES` list, and
+  every reply says which way it went (`x-glm-egress`); a dead route falls back
+  with a label, never silently. What it does **not** do: route a volunteer
+  browser's IP (the offer is still recorded, not used), or ship a Tor client —
+  point `GLM_EGRESS_ROUTES` at a local Tor SOCKS port and the circuit only
+  changes the address.
 - **Captcha minting is browser-side.** The hub can check a minted param against
   Aliyun, but the hub itself does not mint — that stays the partner browser's
   job, and no automated proof-of-mint has run against the real widget yet.

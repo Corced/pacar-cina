@@ -4,7 +4,9 @@
 
 The entire backend of glm2api: one Node process that serves the static site from
 `public/`, authenticates roles, dispatches captcha-mint jobs to connected
-browsers over a WebSocket, keeps an in-memory pool of donated/ minted values,
+browsers over a WebSocket, keeps a pool of donated/ minted values (minted params
+survive a restart through `GLM_STATE_FILE` until they expire; donated ones stay
+in memory),
 verifies captchas against Aliyun, and exposes an OpenAI-shaped chat surface that
 forwards to z.ai / chatglm.cn when an upstream is configured.
 
@@ -35,10 +37,11 @@ exactly like the recorded upstream. Browser-visible values are echoed by
 - `state.people` — `name → {name, role, salt, hash, uses, pinned?}`; a person's key
   makes the session carry their name, which then rides on mint sockets and
   donations. Only an env-pinned person keeps the key itself, because the
-  environment is its owner. Mutable at runtime: `loadPeople`/`savePeople` (JSON at
+  environment is its owner. Mutable at runtime: `loadState`/`saveState` (JSON at
   `GLM_STATE_FILE`, `0600`, written on every change, `version: 2` with a separate
   `seed` block for the superadmin so a revoke cannot drop the account of last
-  resort) and a key pinned in the environment always wins over the file, so a
+  resort, and a `tokens` array beside `people` — minted params, filtered to those
+  still inside their TTL, dropped on load when expired) and a key pinned in the environment always wins over the file, so a
   restart cannot resurrect a revoked key. A `version: 1` file is hashed and
   rewritten on load. `revokePerson` / `rotatePerson` delete the live sessions
   *and* close the open sockets too — without that, "revoked" would mean "until
@@ -91,6 +94,27 @@ request had to go out with no captured param. Several checks assert this rule.
 frame encode/decode (7/16/64-bit lengths, masking), continuation-frame
 fragmentation, ping/pong and close. It deliberately does *not* implement
 extensions or permessage-deflate, so a browser never negotiates compression.
+
+**Hand-written SOCKS5 client.** `socks5.mjs` does the no-auth CONNECT handshake
+(greeting, domain ATYP, full reply read) and returns the raw tunnel socket;
+`forward()` wraps it in `http(s).request` via `createConnection` — TLS over the
+tunnel for https — and falls back to the plain `fetch` path when there is no
+route, so an unconfigured hub behaves exactly as before. `hub.mjs` owns the
+policy: one route per call, round-robin over `GLM_EGRESS_ROUTES`, a failed
+handshake marks that route dead for `GLM_EGRESS_DEAD_MS` and retries once on the
+next live route, and every chat reply carries
+`x-glm-egress: proxy|tor|direct|direct-fallback`. Captcha verification and the
+donation exchange stay direct on purpose (the widget breaks behind a proxy).
+
+**The shared upstream-key pool.** `state.upstreamKeys` holds bearer tokens
+contributed by signed-in visitors, keyed by `sha256(source \\0 key)` with an
+8-char id as the only public handle. A contribution is gated by shape, then JWT
+claims offline (`exp` in the future, `id`/`sub` captured), then one signed 5 s
+probe; the outcome is `ok`, `unverified`, `refused` or `dead`. The chat forward
+prefers a pool token for the destination source over `GLM_UPSTREAM_KEY` and
+labels which answered (`x-glm-key`). These tokens are never written to
+`GLM_STATE_FILE`, never logged and never returned by any route — the state
+file's `tokens` array is the captcha pool, a different and single-use thing.
 
 ## Flow
 
@@ -226,8 +250,11 @@ the path always taken from the source so `cn/` keeps `/api/v1`.
 `GLM_IP_LOOKUP_URL` is *not* called by the hub; the browser does that.
 
 Files: `hub.mjs` (all of the above), `ws.mjs` (`acceptKey`, `encodeFrame`,
-`decodeFrames`, `attachSocket`, `OP`, `newId`). Proving suites: `check-chat.mjs`
-(local upstream stub, 62 assertions) for forwarding and the pool,
-`check-hub.mjs` (71 assertions, including a stub Aliyun endpoint) for the routes,
-the donation cap, `/status/self` and the sockets, and
-`check-people.mjs` (57 assertions, four hub restarts) for the directory.
+`decodeFrames`, `attachSocket`, `OP`, `newId`), `socks5.mjs`
+(`socks5Connect`, `forward`). Proving suites: `check-chat.mjs`
+(local upstream stub plus a SOCKS5 stub, 97 assertions) for forwarding, the
+pool, the routed call and the fallback, `check-hub.mjs` (71 assertions,
+including a stub Aliyun endpoint) for the routes, the donation cap,
+`/status/self` and the sockets, and `check-people.mjs` (57 assertions, four hub
+restarts) for the directory. `check-config.mjs` (113 assertions) covers the
+state file, including a pool that survives a restart.
