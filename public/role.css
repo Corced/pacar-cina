@@ -69,6 +69,7 @@
 .btn.go { background: linear-gradient(135deg, var(--acc), var(--acc2)); color: #06210f; border-color: transparent; }
 .btn.wide { width: 100%; text-align: center; }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
+.btn[hidden] { display: none; }   /* .btn's own display would otherwise beat [hidden] */
 
 .row { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
 
@@ -81,16 +82,12 @@
 .meter { height: 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--bd2); overflow: hidden; }
 .meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--acc), var(--acc2)); }
 
-/* ── switches (egress classes, contribution toggles) ── */
+/* ── rows: a label on the left, a tag on the right ── */
 .sw { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--bd2); }
 .sw:last-child { border-bottom: 0; }
 .sw .grow { flex: 1 1 auto; }
 .sw .nm { font-size: 13.5px; }
 .sw .ds { font-size: 12px; color: var(--mut); }
-.tgl { flex: none; width: 40px; height: 22px; border-radius: 999px; border: 1px solid var(--bd); background: var(--bg); position: relative; cursor: pointer; }
-.tgl i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--mut); transition: left .14s, background .14s; }
-.tgl[aria-checked="true"] { border-color: var(--acc); background: rgba(46,160,67,.16); }
-.tgl[aria-checked="true"] i { left: 20px; background: var(--acc); }
 
 /* ── plain table ── */
 .tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
@@ -118,7 +115,51 @@
 #log { font-family: ui-monospace, monospace; font-size: 12px; color: var(--mut); max-height: 190px; overflow: auto; }
 #log div { padding: 2px 0; border-bottom: 1px solid var(--bd2); }
 
+/* ── pills and monospace text, for pages that do not load admin.css ── */
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; font-weight: 700; padding: 4px 10px;
+  border-radius: 999px; border: 1px solid var(--bd);
+  background: var(--bg); color: var(--mut); white-space: nowrap;
+}
+.pill.ok  { color: var(--ok);   border-color: rgba(63,185,80,.4);  background: rgba(63,185,80,.1); }
+.pill.bad { color: var(--bad);  border-color: rgba(248,81,73,.4);  background: rgba(248,81,73,.1); }
+.pill.warn{ color: var(--warn); border-color: rgba(210,153,34,.4); background: rgba(210,153,34,.1); }
+.pill.info{ color: var(--info); border-color: rgba(47,129,247,.4); background: rgba(47,129,247,.1); }
+
+.mono { font-family: ui-monospace, monospace; font-size: 12px; }
+
+/* ── chat: bar, transcript, status strip ── */
+.chat-bar { flex-wrap: wrap; }
+.chat-bar .pick { flex: 1 1 100%; display: flex; gap: 8px; }
+.chat-bar .pick .in { min-width: 0; }
+
+.chat {
+  display: flex; flex-direction: column; gap: 10px;
+  min-height: 190px; max-height: 52vh; overflow-y: auto;
+  padding: 12px; background: var(--bg);
+  border: 1px solid var(--bd2); border-radius: 10px;
+}
+.turn { border: 1px solid var(--bd2); border-radius: 10px; padding: 9px 11px; background: rgba(22,27,34,.75); }
+.turn .trole {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--mut); margin-bottom: 4px;
+}
+.turn .txt {
+  font-size: 13.5px; line-height: 1.55; white-space: pre-wrap;
+  overflow-wrap: anywhere; user-select: text;
+}
+.turn.me { border-color: rgba(47,129,247,.35); }
+.turn.me .trole { color: var(--info); }
+.turn.bot { border-color: rgba(46,160,67,.3); background: rgba(46,160,67,.05); }
+.turn.bot .trole { color: var(--acc); }
+
+.strip { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 12px; font-size: 11.5px; color: var(--mut); }
+.strip b { font-family: ui-monospace, monospace; font-size: 11.5px; font-weight: 600; color: var(--fg); }
+.strip b.bad { color: var(--bad); }
+
 /* the same single breakpoint the original uses */
 @media (max-width: 560px) {
   .roles { grid-template-columns: 1fr; }
+  .chat { max-height: 62vh; }
 }

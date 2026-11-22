@@ -36,6 +36,7 @@ function check(name, ok, extra = '') {
 const seen = [];
 let stubStatus = 200;
 let stubDelayMs = 0;          // hold responses open, to make requests overlap
+let stubStream = false;       // answer as SSE, to exercise the reply reader
 const stub = createServer((req, res) => {
   let raw = '';
   req.on('data', (d) => { raw += d.toString(); });
@@ -45,6 +46,14 @@ const stub = createServer((req, res) => {
     seen.push({ path: req.url, headers: req.headers, body });
     if (stubDelayMs) await sleep(stubDelayMs);
     if (stubStatus === 200) {
+      if (stubStream) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        for (const piece of ['streamed ', 'answer']) {
+          res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: piece } }] }) + '\n\n');
+        }
+        res.end('data: [DONE]\n\n');
+        return;
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'pong' } }] }));
       return;
@@ -91,16 +100,20 @@ async function status(cookie) {
   return (await fetch(BASE + '/status', { headers: { cookie } })).json();
 }
 
-async function chat(model, cookie) {
+async function chat(model, cookie, extra) {
+  const body = Object.assign(
+    { model, messages: [{ role: 'user', content: 'hello there' }] },
+    extra || {}
+  );
   const r = await fetch(BASE + '/v1/chat/completions', {
     method: 'POST',
     headers: Object.assign({ 'content-type': 'application/json' }, cookie ? { cookie } : {}),
-    body: JSON.stringify({ model, messages: [{ role: 'user', content: 'hello there' }] }),
+    body: JSON.stringify(body),
   });
   const text = await r.text();
-  let body = null;
-  try { body = JSON.parse(text); } catch { /* keep text */ }
-  return { status: r.status, body, pool: r.headers.get('x-glm-pool') };
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch { /* keep text */ }
+  return { status: r.status, body: parsed, pool: r.headers.get('x-glm-pool'), headers: r.headers };
 }
 
 const socks = [];
@@ -309,6 +322,185 @@ try {
   const eight = await chat('z.ai/glm-5.3');
   check('the same caller may try again once the wait is over',
     eight.status === 200, 'HTTP ' + eight.status);
+
+  /* ── 4b. the model rule, and every chat is attributable ──
+   * The upstream keeps adding words to its own model names (-max, -air), so a
+   * catalog-only parser refuses models that exist. The split runs from the
+   * right: the base is what is left once a known suffix comes off. */
+  seen.length = 0;
+  const maxRes = await chat('z.ai/glm-5.3-max-think', aliceCookie);
+  check('a base the catalog has never heard of still forwards',
+    maxRes.status === 200 && seen[0] && seen[0].body.model === 'glm-5.3-max',
+    'model=' + (seen[0] && seen[0].body.model));
+  check('the suffix is split off the right, so -max stays in the base',
+    seen[0] && seen[0].body.features && seen[0].body.features.enable_thinking === true,
+    JSON.stringify(seen[0] && seen[0].body.features));
+  check('an unknown base is labelled unknown rather than quietly accepted',
+    maxRes.headers.get('x-glm-model-known') === 'false',
+    String(maxRes.headers.get('x-glm-model-known')));
+
+  // Two chats are two conversations: the id is minted per request and never
+  // taken from the client, so replaying an id cannot continue another chat.
+  const first = await chat('z.ai/glm-5.3', aliceCookie);
+  const second = await chat('z.ai/glm-5.3', aliceCookie);
+  check('every chat gets its own conversation id',
+    /^chat-[0-9a-f-]{36}$/.test(first.headers.get('x-glm-chat') || '')
+      && first.headers.get('x-glm-chat') !== second.headers.get('x-glm-chat'),
+    first.headers.get('x-glm-chat') + ' vs ' + second.headers.get('x-glm-chat'));
+  check('the same identity keeps one caller tag across chats',
+    /^[0-9a-f]{8}$/.test(first.headers.get('x-glm-caller') || '')
+      && first.headers.get('x-glm-caller') === second.headers.get('x-glm-caller'),
+    String(first.headers.get('x-glm-caller')));
+  check('a known model is labelled known',
+    first.headers.get('x-glm-model-known') === 'true',
+    String(first.headers.get('x-glm-model-known')));
+
+  seen.length = 0;
+  const supplied = await chat('z.ai/glm-5.3', aliceCookie, { chat_id: 'stolen-chat-id' });
+  check('a client-supplied chat_id is ignored, not honoured',
+    supplied.headers.get('x-glm-chat-supplied') === 'ignored'
+      && seen[0] && seen[0].body.chat_id !== 'stolen-chat-id',
+    String(seen[0] && seen[0].body.chat_id));
+  check('the tag, never the name, is what goes upstream',
+    seen[0] && seen[0].headers['x-glm-caller'] === supplied.headers.get('x-glm-caller'),
+    String(seen[0] && seen[0].headers['x-glm-caller']));
+  const otherTag = await chat('z.ai/glm-5.3');
+  check('another caller gets a different tag',
+    otherTag.headers.get('x-glm-caller') !== first.headers.get('x-glm-caller'),
+    first.headers.get('x-glm-caller') + ' vs ' + otherTag.headers.get('x-glm-caller'));
+
+  const ledger = await status(adminCookie);
+  const row = (ledger.chatLedger.recent || []).find((c) => c.id === supplied.headers.get('x-glm-chat'));
+  check('the tracer records whose conversation it was',
+    row && row.who === 'person:alice' && row.tag === supplied.headers.get('x-glm-caller')
+      && row.status === 200,
+    JSON.stringify(row));
+  check('the tracer ledger is bounded',
+    ledger.chatLedger.kept <= 200, 'kept=' + ledger.chatLedger.kept);
+
+  /* ── 4c. a conversation continues, and only for its own caller ──
+   * The id the hub minted is the handle. Hand it back and the hub replays what
+   * it relayed, so a client that sends only its new line still has the topic;
+   * hand back someone else's and nothing is replayed. */
+  seen.length = 0;
+  const turn1 = await chat('z.ai/glm-5.3', aliceCookie);
+  const conv = turn1.headers.get('x-glm-chat');
+  seen.length = 0;
+  const turn2 = await chat('z.ai/glm-5.3', aliceCookie, {
+    chat_id: conv,
+    messages: [{ role: 'user', content: 'and again' }],
+  });
+  check('a chat_id handed back continues the same conversation',
+    turn2.status === 200 && turn2.headers.get('x-glm-chat') === conv
+      && turn2.headers.get('x-glm-chat-continued') === 'true',
+    'HTTP ' + turn2.status + ' continued=' + turn2.headers.get('x-glm-chat-continued'));
+  check('a one-line turn is sent with the turns the hub already relayed',
+    seen[0] && JSON.stringify(seen[0].body.messages.map((m) => m.role))
+      === JSON.stringify(['user', 'assistant', 'user']),
+    JSON.stringify(seen[0] && seen[0].body.messages));
+  check('the remembered assistant turn is the real reply, not a placeholder',
+    seen[0] && seen[0].body.messages[1]
+      && seen[0].body.messages[1].content === 'pong',
+    JSON.stringify(seen[0] && seen[0].body.messages[1]));
+
+  // A client that carries its own history is taken at its word: appending would
+  // duplicate every turn it just re-sent.
+  seen.length = 0;
+  const replay = await chat('z.ai/glm-5.3', aliceCookie, {
+    chat_id: conv,
+    messages: [
+      { role: 'user', content: 'hello there' },
+      { role: 'assistant', content: 'pong' },
+      { role: 'user', content: 'and again' },
+      { role: 'assistant', content: 'pong' },
+      { role: 'user', content: 'third' },
+    ],
+  });
+  check('a client replaying its own history is not duplicated by the hub',
+    replay.status === 200 && seen[0] && seen[0].body.messages.length === 5,
+    'messages=' + (seen[0] && seen[0].body.messages.length));
+
+  // The id is the handle, not the key: possession alone must not open it, and
+  // the answer must not tell a stranger whether the id exists.
+  const strangerTurn = await chat('z.ai/glm-5.3', null, {
+    chat_id: conv,
+    messages: [{ role: 'user', content: 'what were we talking about' }],
+  });
+  const ghostTurn = await chat('z.ai/glm-5.3', null, {
+    chat_id: 'chat-00000000-0000-4000-8000-000000000000',
+    messages: [{ role: 'user', content: 'what were we talking about' }],
+  });
+  check('another caller cannot continue a conversation it did not mint',
+    strangerTurn.status === 404, 'HTTP ' + strangerTurn.status);
+  check('a conversation that is not yours answers exactly like one that is not there',
+    strangerTurn.status === ghostTurn.status
+      && strangerTurn.body.error.type === ghostTurn.body.error.type
+      && strangerTurn.body.error.message === ghostTurn.body.error.message,
+    'HTTP ' + strangerTurn.status + ' vs ' + ghostTurn.status);
+  check('a refused continuation spends nothing and records nothing',
+    (await status(adminCookie)).chatLedger.recent.every((c) => c.id !== 'chat-00000000-0000-4000-8000-000000000000'),
+    'ledger has no ghost row');
+
+  // A refusal must hand its slot back. Without that, four 404s cost a caller its
+  // entire budget with nothing in flight, and it stays locked out.
+  for (let i = 0; i < 4; i++) {
+    await chat('z.ai/glm-5.3', null, { chat_id: conv, messages: [{ role: 'user', content: 'x' }] });
+  }
+  const afterRefusals = await chat('z.ai/glm-5.3');
+  check('a refused continuation gives its slot back',
+    afterRefusals.status === 200, 'HTTP ' + afterRefusals.status);
+
+  // One turn at a time per conversation. Two at once would each be built
+  // without the other's reply, then overwrite each other's turns in the row —
+  // one conversation, two interleaved histories. The second is told to wait.
+  const busyBase = await chat('z.ai/glm-5.3', aliceCookie);
+  const busyId = busyBase.headers.get('x-glm-chat');
+  stubDelayMs = 700;
+  const pending = chat('z.ai/glm-5.3', aliceCookie, {
+    chat_id: busyId, messages: [{ role: 'user', content: 'first' }],
+  });
+  await sleep(120);
+  const racing = await chat('z.ai/glm-5.3', aliceCookie, {
+    chat_id: busyId, messages: [{ role: 'user', content: 'second' }],
+  });
+  const firstDone = await pending;
+  stubDelayMs = 0;
+  check('a second turn while one is in flight is refused, not interleaved',
+    racing.status === 409 && racing.body.error.type === 'chat_busy',
+    'HTTP ' + racing.status);
+  check('the turn already in flight still completes', firstDone.status === 200,
+    'HTTP ' + firstDone.status);
+  const afterBusy = await chat('z.ai/glm-5.3', aliceCookie, {
+    chat_id: busyId, messages: [{ role: 'user', content: 'third' }],
+  });
+  check('the conversation is free again once its answer arrives',
+    afterBusy.status === 200, 'HTTP ' + afterBusy.status);
+
+  // A long conversation is trimmed, not accumulated for the process lifetime.
+  const big = 'x'.repeat(4000);
+  const big1 = await chat('z.ai/glm-5.3', aliceCookie, { messages: [{ role: 'user', content: big }] });
+  const bigId = big1.headers.get('x-glm-chat');
+  for (let i = 0; i < 3; i++) {
+    await chat('z.ai/glm-5.3', aliceCookie, { chat_id: bigId, messages: [{ role: 'user', content: big }] });
+  }
+  const bigRow = (await status(adminCookie)).chatLedger.recent.find((c) => c.id === bigId);
+  check('a long conversation is trimmed instead of growing without bound',
+    bigRow && bigRow.turns <= 4, 'turns=' + (bigRow && bigRow.turns));
+
+  // A streamed answer is remembered from its frames: the reply is what the
+  // caller saw, not the envelope it arrived in.
+  stubStream = true;
+  const streamed = await chat('z.ai/glm-5.3', aliceCookie, { stream: true });
+  stubStream = false;
+  seen.length = 0;
+  await chat('z.ai/glm-5.3', aliceCookie, {
+    chat_id: streamed.headers.get('x-glm-chat'),
+    messages: [{ role: 'user', content: 'and then' }],
+  });
+  check('a streamed reply is remembered from its SSE frames',
+    seen[0] && seen[0].body.messages[1]
+      && seen[0].body.messages[1].content === 'streamed answer',
+    JSON.stringify(seen[0] && seen[0].body.messages[1]));
 
   /* ── 5. an empty pool still forwards, and says so ── */
   // Take the partner offline first, or the refill loop refills faster than the

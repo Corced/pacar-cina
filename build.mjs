@@ -28,7 +28,7 @@ for (const f of files) {
 }
 
 // Guard: the published site must stay self-contained static files.
-const required = ['index.html', 'login.html', 'user.html', 'partner.html', 'admin.html', 'repos.html'];
+const required = ['index.html', 'login.html', 'user.html', 'partner.html', 'admin.html', 'chat.html', 'repos.html'];
 for (const r of required) {
   if (!files.some((f) => relative(out, f).replaceAll('\\', '/') === r)) {
     throw new Error(`build output is missing ${r}`);

@@ -76,7 +76,8 @@ That single sort is what makes the spread even — it is the project's core clai
 and `check-hub-multi.mjs` asserts 10/10/10 across three partners.
 
 **Server-rendered navigation as presentation, never access control.** `navFor`
-maps a role to its links; `withNav` splices the bar into the `<!--nav-->` marker
+maps a role to its links (home, `chat` for every signed-in role, minter, and the
+admin extras); `withNav` splices the bar into the `<!--nav-->` marker
 in the HTML at serve time, so the correct menu is in the first paint. Every JSON
 route independently enforces its own role — the bar is a map, not a lock.
 
@@ -131,13 +132,32 @@ with connected partners keeps filling even with no other traffic.
 ```
 POST /v1/chat/completions → readBody → resolveModel(model)
    null            → 400 with the catalog shape and a pointer to GET /v1/models
-   no UPSTREAM.url → 501 {type:'not_implemented', resolved_model}
+                     (a base outside the catalog still resolves when it starts
+                     with glm; the source must be z.ai or cn; an exact
+                     GLM_MODEL_EXTRA id wins over the base+suffix split)
+   no UPSTREAM.url → 501 {type:'not_implemented', resolved_model, model_known}
    else            → slot = takeChatSlot(chatKeyOf(req, session)) — before the
                      pool is touched, so a refusal spends nothing;
                      !slot → 429 {type:'rate_limit_error', limit,
                       retry_after_seconds} + retry-after, and that caller is
                       held for GLM_CHAT_COOLDOWN_MS (a retry inside it is 429
                       too); the slot is released in a finally on every path;
+                     tag = callerTag(who) (8-hex HMAC, per-process salt);
+                     continuation, before anything is spent:
+                       body.chat_id owned by this tag → reuse the row;
+                       that row already busy → 409 chat_busy (one turn at a
+                       time: two would overwrite each other's turns);
+                       hub-shaped but unknown/foreign → 404 chat_not_found
+                       (identical answer for both, so it is not a probe);
+                       any other shape → ignored (x-glm-chat-supplied:ignored)
+                       — every refusal gives its chat slot back first;
+                     messages: a client replaying its own history is used as
+                     sent; otherwise stored turns + the new ones;
+                     chatId = row.id, or 'chat-' + randomUuid() for a new chat;
+                     noteChat(...) — bounded ledger, turns:[];
+                     response headers: x-glm-chat, x-glm-caller,
+                     x-glm-caller-kind, x-glm-model-known, and with a chat_id
+                     x-glm-chat-continued:true|false;
                      dest = GLM_UPSTREAM || SOURCES[source] (path always from
                      the source, so cn/ keeps /api/v1);
                      spent = consumeToken() — oldest first;
@@ -146,18 +166,23 @@ POST /v1/chat/completions → readBody → resolveModel(model)
                      features{image_generation, web_search, auto_web_search,
                      preview_mode, flags, enable_thinking} from the suffix;
                      headers: authorization, x-fe-version, x-region,
+                     x-glm-caller=tag (tag, never the name),
                      x-signature = signZai(prompt, key) (HMAC-SHA256 over a
                      bucketed key, requestId/timestamp/user_id + base64 prompt);
                      AbortController at UPSTREAM.timeoutMs;
                      401/403/429 → unshift the entry back (unspent), respond
-                     with the upstream status; success → respond and return
+                     with the upstream status; success → replyOf(text) is
+                     appended as the assistant turn and trimChat() keeps the
+                     conversation within GLM_CHAT_KEEP_CHARS, respond and return
                      (must not fall through to serveStatic); network error →
-                     502 with the entry restored. Always answers x-glm-pool:
-                     spent|empty.
+                     502 with the entry restored and the unanswered turn
+                     dropped. Always answers x-glm-pool: spent|empty.
 ```
 
-`resolveModel` makes `CATALOG` entries (`<source>/<base>[-suffix]`) the authority
-and treats bare bases (`glm-4.7`) as aliases for their z.ai id.
+`resolveModel` parses `<source>/<base>[-suffix]` by stripping known suffixes from
+the **right**, so a base the catalog has never seen (`glm-5.3-max`) still
+resolves; the catalog is the published list, not an allow-list. Everything
+outside it is served and labelled `known: false`.
 
 **Donation.** `POST /tokens {kind, value}` → partner/admin gate → SHA-256
 fingerprint (16 chars) → duplicate short-circuit → `donateLimit` check
@@ -181,7 +206,7 @@ Route table. "session" = any signed-in role; "adminish" = `admin` or `superadmin
 | GET | `/session` | open | `roles.js` (`hub()` probe) |
 | GET | `/config` | open | `glm-client.js`, `roles.js` (IP lookup URL) |
 | GET | `/status` | adminish | `admin.js` (5 s poll) |
-| GET | `/status/self` | session | minter's no-hub probe / partner pages |
+| GET | `/status/self` | session | `user.js` (5 s poll), `roles.js`/`minter.js` no-hub probe; adds `you` + `poolNow` |
 | POST | `/tokens` | partner, adminish | `roles.js` (`mountPartner`); 429 past `GLM_DONATE_CONCURRENCY` per caller |
 | GET | `/tokens[?mine=1\|?all=1]` | partner; `?all=1` adminish | `roles.js`, `admin.js` |
 | POST | `/captcha/verify` | adminish | `admin.js` |
@@ -191,8 +216,8 @@ Route table. "session" = any signed-in role; "adminish" = `admin` or `superadmin
 | POST | `/people/rotate` | adminish | new key returned once; old key and sessions dead |
 | POST | `/features` | admin | default flags for every chat request; a suffix overrides per call |
 | POST | `/admin/session/clear` | adminish | `admin.js` drop button; closes every partner socket |
-| GET | `/v1/models` | open | external OpenAI-shaped clients |
-| POST | `/v1/chat/completions` | open | external clients (501 without `GLM_UPSTREAM`; forwards, signs and spends a pool entry with it; 429 past `GLM_CHAT_CONCURRENCY` for one caller) |
+| GET | `/v1/models` | open | `chat.js` picker, external OpenAI-shaped clients |
+| POST | `/v1/chat/completions` | open | `chat.js` and external clients (501 without `GLM_UPSTREAM`; forwards, signs and spends a pool entry with it; 429 past `GLM_CHAT_CONCURRENCY` for one caller) |
 | GET | `/…` (static) | session for `.html`; assets + `login.html` public | every page |
 
 Outbound calls: `CONFIG.captcha.verifyUrl` (Aliyun verify), and the chat forward
@@ -202,7 +227,7 @@ the path always taken from the source so `cn/` keeps `/api/v1`.
 
 Files: `hub.mjs` (all of the above), `ws.mjs` (`acceptKey`, `encodeFrame`,
 `decodeFrames`, `attachSocket`, `OP`, `newId`). Proving suites: `check-chat.mjs`
-(local upstream stub, 38 assertions) for forwarding and the pool,
-`check-hub.mjs` (66 assertions, including a stub Aliyun endpoint) for the routes,
-the donation cap and the sockets, and
-`check-people.mjs` (56 assertions, four hub restarts) for the directory.
+(local upstream stub, 62 assertions) for forwarding and the pool,
+`check-hub.mjs` (71 assertions, including a stub Aliyun endpoint) for the routes,
+the donation cap, `/status/self` and the sockets, and
+`check-people.mjs` (57 assertions, four hub restarts) for the directory.

@@ -89,6 +89,14 @@
       </div>
       <p class="note" style="margin:8px 0 0">The key is only sent to this hub to get a session. It is
       never stored in this page, and the hub never echoes it back.</p>
+      <label for="personname" class="note" style="display:block;margin:10px 0 6px">Your name, if that
+      key belongs to a person in the directory (optional)</label>
+      <input id="personname" type="text" autocomplete="off" spellcheck="false"
+             placeholder="alice" class="mono"
+             style="width:100%;background:var(--bg2);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:7px 9px;font-size:12px">
+      <p class="note" style="margin:6px 0 0">A name is not proof — the hub matches it against the key
+      you paste, and refuses a pair that does not belong together. Without one you are signed in as
+      the role, and your donations and sockets are counted under it.</p>
     </div>
     <p class="note">All three roles mint captchas — that is the point of the pool. The differences are
     what each one may contribute and what each one may see.</p>

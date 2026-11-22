@@ -27,9 +27,9 @@ different states:
 
 | What is donated                                                                                            | State                                                                                                                                                                                                                                                                           | Proven by                                                                |
 | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| **A browser's mint work** - a partner keeps a tab open; the hub sends it captcha jobs; the browser answers | **Finished and proven.** Key-gated socket, real job round trip, even spread across partners, pool stops exactly at its target, entries expire and the pool refills itself; a graceful close takes the partner offline and frees a job it was holding instead of leaving it busy | `check-hub.mjs` (66 expectations) + `check-hub-multi.mjs` (9), all green |
+| **A browser's mint work** - a partner keeps a tab open; the hub sends it captcha jobs; the browser answers | **Finished and proven.** Key-gated socket, real job round trip, even spread across partners, pool stops exactly at its target, entries expire and the pool refills itself; a graceful close takes the partner offline and frees a job it was holding instead of leaving it busy | `check-hub.mjs` (71 expectations) + `check-hub-multi.mjs` (9), all green |
 | **Tokens / sessions pasted into `partner.html`**                                                           | **Accepted and verified on arrival.** The form POSTs to `POST /tokens`; the hub keeps only a SHA-256 fingerprint, checks the value with Aliyun straight away, and records valid / invalid / unverified — never the value                                                        | `check-hub.mjs` (donation expectations)                                  |
-| **An IP as an egress point** (`user.html`)                                                                 | **Toggle only.** The switch is remembered, nothing routes traffic through it                                                                                                                                                                                                    | Stated on the page itself                                                |
+| **An IP as an egress point** (`user.html`)                                                                 | **Reported, not routed.** The page shows what the hub can prove about this address (is a minter socket from it open, how many captchas that address returned) and nothing it cannot; no traffic is routed through it                                                                 | `check-hub.mjs` (`/status/self` expectations)                            |
 
 So: open the hub, sign in as a partner, open the minter tab — that flow works
 end to end today, and the values it runs on (captcha scene, appkey, FE version,
@@ -78,8 +78,9 @@ session cookie is one role at a time per browser.
 | Page    | File                       | What it is                                                                                                                                                                                                                                                      |
 | ------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Minter  | `index.html` + `minter.js` | The page a partner keeps open. Connects to `/minter/ws`, answers mint jobs, shows status/mints/in-flight and a 40-line activity log. This is a rebuild of the original page and keeps its exact contract.                                                       |
-| Sign in | `login.html`               | **The front door.** `/` redirects here (or to your own page if you are already signed in). The three roles. **user** signs in with no key (open by design); **partner** and **admin** reveal a key box. Explains honestly what a session is and what it is not. |
-| User    | `user.html`                | “Lend an IP”. Shows the egress IP the far end would see, uptime, captcha count, and the egress/solve/tab-only switches.                                                                                                                                         |
+| Chat    | `chat.html` + `chat.js`    | The one page every signed-in role gets. Model picker from `GET /v1/models`, a transcript, one turn at a time; it keeps the `x-glm-chat` id and hands it back, so a follow-up continues the topic. Text lives in the tab only — a reload starts a clean transcript while the hub keeps the conversation. Every refusal (400/404/409/429/501/502) is quoted, not smoothed over. |
+| Sign in | `login.html`               | **The front door.** `/` redirects here (or to your own page if you are already signed in). The three roles. **user** signs in with no key (open by design); **partner**, **admin** and **superadmin** reveal a key box, plus an optional name box for a person in the directory — the hub refuses a name paired with a key that is not that person's rather than quietly dropping the name. Explains honestly what a session is and what it is not. |
+| User    | `user.html` + `user.js`    | A report, not a control: polls `GET /status/self` every 5 s and shows this address as the hub saw it (is a minter socket from it connected, how many captchas it returned) plus live pool numbers. Solving happens on the minter page; this page says so and links there. |
 | Partner | `partner.html`             | “Lend accounts”. The token/session paste form (currently local-only), contribution counters, same minting ability as everyone.                                                                                                                                  |
 | Admin   | `admin.html`               | The operator panel: status, partner pool (id, IP, role, mints, state), token pool, feature defaults, egress classes, endpoints, activity log, a key box on 401/403.                                                                                             |
 | Repos   | `repos.html`               | A dissection of the three reference projects — what each has, what each lacks, and the gap none of them fills (a partner-facing page).                                                                                                                          |
@@ -206,11 +207,11 @@ socket, which is why the pages need no configuration.
 | `POST /people/revoke`       | admin session                    | `{name}` → drop the person, their key, live sessions and open sockets, now                                                                                                                                                         |
 | `POST /people/rotate`       | admin session                    | `{name}` → new key returned once, old key and sessions dead immediately                                                                                                                                                            |
 | `GET /status`               | **admin** session                | the full JSON `admin.js` polls                                                                                                                                                                                                     |
-| `GET /status/self`          | any signed-in role               | the public half: role, port, socket path, pool target                                                                                                                                                                              |
+| `GET /status/self`          | any signed-in role               | the public half: role, port, socket path, pool target, plus `you` (this caller's address, whether a minter socket from it is connected, and how many captchas it returned) and `poolNow` (live tokens/in-flight/online/minted) — what `user.html` polls every 5 s |
 | `POST /features`            | admin session                    | default feature flags applied to **every** chat request; a model suffix turns one on for a single call. `persist_history` is deliberately absent - the hub keeps no conversation store, so a switch for it could never do anything |
 | `POST /admin/session/clear` | admin session                    | close every connected partner socket (this is a disconnect, not a logout)                                                                                                                                                          |
 | `GET /v1/models`            | open                             | the model list                                                                                                                                                                                                                     |
-| `POST /v1/chat/completions` | open                             | forwards when `GLM_UPSTREAM` is set, otherwise **501** with the reason; **429** + `retry-after` past `GLM_CHAT_CONCURRENCY` for one caller                                    |
+| `POST /v1/chat/completions` | open                             | forwards when `GLM_UPSTREAM` is set, otherwise **501** with the reason; **429** + `retry-after` past `GLM_CHAT_CONCURRENCY` for one caller; **404** for a `chat_id` that is not this caller's; **409** while that conversation already has a turn in flight; replies carry `x-glm-chat` / `x-glm-caller`      |
 | `GET /…`                    | **session** for `.html`          | serves `public/`; signed out, pages redirect to `login.html?next=…`, while CSS/JS/icons stay public. Path traversal is refused with 403                                                                                            |
 
 ### Environment variables
@@ -219,6 +220,11 @@ Every value below that the browser needs is also published by `GET /config`,
 so the page and the client library take their settings from the hub rather than
 carrying a copy. **With nothing set, the hub answers with the values the
 original capture used**, so a plain checkout behaves as recorded.
+
+Copy `.env.example` to `.env` and run `npm run hub:env` — Node loads the file
+with `--env-file`, and `npm run hub` never reads it, so a shell-only setup is
+unchanged. `.env` is git-ignored, which is where real keys belong; the people
+state file belongs outside the repo for the same reason.
 
 | Variable                          | Default                                           | Meaning                                                                                                                                                                                                                                                        |
 | --------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -245,6 +251,7 @@ original capture used**, so a plain checkout behaves as recorded.
 | `GLM_UPSTREAM_TIMEOUT`            | `30000`                                           | upstream call deadline in ms                                                                                                                                                                                                                                   |
 | `GLM_CHAT_CONCURRENCY`            | `4`                                               | how many `/v1/chat/completions` one caller may hold at once; the next one gets **429**                                                                                                                                                                         |
 | `GLM_CHAT_COOLDOWN_MS`            | `5000`                                            | how long a caller waits after being refused, in ms; `0` turns the wait off and leaves only the concurrency cap                                                                                                                                                 |
+| `GLM_CHAT_KEEP_CHARS`             | `6000`                                            | characters of one conversation the hub replays when a caller continues it with only a new message; the oldest turns fall off first                                                                                                                             |
 | `GLM_DONATE_CONCURRENCY`          | `4`                                               | how many captcha-shaped donations one caller may have verifying against Aliyun at once; the next gets **429**                                                                                                                                                  |
 | `GLM_SIGN_SALT`                   | the reference projects' salt                      | the HMAC salt for the upstream `x-signature`; override it only for a different origin                                                                                                                                                                          |
 | `SESSION_SECRET`                  | ephemeral                                         | HMAC key for session cookies; unset = new every restart, so all sessions die                                                                                                                                                                                   |
@@ -276,6 +283,66 @@ The hub rewrites the model id to the source's plain base name, sets the
 declared feature flags in the body, and forwards with the pool's FE version
 and region headers.
 
+**The catalog is a list, not an allow-list.** The upstream keeps adding words to
+its own model names, so the suffix is stripped from the **right** and whatever
+remains is the base: `z.ai/glm-5.3-max-think` forwards `glm-5.3-max` with
+thinking on, even though no catalog entry exists for it. Two rules keep that
+from meaning "forward anything": the source must be `z.ai` or `cn`, and an
+unknown base must start with `glm` (`z.ai/gpt-9` is still a 400). Any other name
+is pinned exactly with `GLM_MODEL_EXTRA`, so a base that genuinely ends in
+`-think` is never re-split. An id outside the catalog is served and labelled
+`x-glm-model-known: false` rather than silently treated as known.
+
+**One conversation, and it resumes.** The hub mints the `chat_id` for every
+request and returns it in `x-glm-chat`. Hand that id back in the next request's
+`chat_id` and the conversation continues:
+
+```jsonc
+// turn 1
+{ "model": "z.ai/glm-5.3", "messages": [{ "role": "user", "content": "who wrote Dune?" }] }
+// -> x-glm-chat: chat-4c5d...  body: "Frank Herbert."
+
+// turn 2 — one new line is enough, the hub replays the turns it relayed
+{ "model": "z.ai/glm-5.3", "chat_id": "chat-4c5d...",
+  "messages": [{ "role": "user", "content": "and the sequel?" }] }
+```
+
+`/chat.html` does both of these for you: it keeps the id the hub returned and
+hands it back with the next turn, so the topic carries over without re-pasting
+anything. The transcript itself is the tab's memory, not the hub's — reload and
+the text is gone while the conversation is still there.
+
+A client that sends its whole history (what OpenAI clients do) is taken at its
+word — the opening message is the test, so nothing is duplicated. **One turn at a
+time:** a second request for a conversation that already has one in flight gets
+`409` (`chat_busy`), because two would each be built without the other's reply
+and then overwrite each other's turns — one conversation, two histories. The hub
+keeps at most `GLM_CHAT_KEEP_CHARS` (6000) characters per conversation and drops
+the oldest turns first, keeping a leading system message and always the last
+exchange; the text stays in this process only, is never written to disk, and
+`/status` reports the turn **count**, never the content. A restart loses it all,
+so the next continuation answers `404` and the client starts fresh.
+
+The honest ceiling on that memory: the budget is measured in characters, not
+enforced as a byte cap — the last exchange always survives, and one request body
+is capped at 64 KB (`readBody`), so 200 kept conversations can hold roughly 12 MB
+of text at the very worst. Deleting a conversation is not offered; the oldest is
+evicted once 200 exist, which also means a caller who starts 200 new chats
+evicts everybody else's.
+
+**Only the caller that minted an id can continue it.** The row is bound to the
+8-hex HMAC tag of the caller (`person:alice`, or `role:…`, or `ip:…`), and a
+request with an id that belongs to somebody else gets exactly the same `404` as
+an id that never existed — so the id cannot be used to probe for other people's
+conversations. Two callers therefore cannot bleed into each other's chat even
+when they share the one upstream credential. Each reply carries `x-glm-chat`
+(the id), `x-glm-caller` (the tag), `x-glm-caller-kind` (`person`/`role`/`ip`)
+and `x-glm-chat-continued`; the tag, never the name, also rides upstream as
+`x-glm-caller`, and `/status.chatLedger.recent` maps the last 20 ids back to the
+identity that made them. The honest limit: the tag proves *which hub user* a
+chat belongs to — it cannot make one upstream account into many, and anyone who
+shares one person's key is that person.
+
 ### What it deliberately does not do
 
 - **It does not validate a minted captcha before spending it.** A param is
@@ -294,20 +361,33 @@ and region headers.
   created through `POST /people`), with runtime revocation and rotation, but
   there is no sign-up, no password store and no password reset — the key _is_
   the account.
+- **It does not compile the frontend.** No TypeScript, no bundler: the six
+  scripts in `public/` are the bytes the browser runs, which is why a browser
+  failure can be read straight off the file. All six open with `// @ts-check`
+  and carry JSDoc `@typedef`s for the wire shapes they read, so
+  `check-types.mjs` checks them with `tsc --strict` whenever a `tsc` is on PATH
+  (and says "skipped" when there is none — zero dependencies wins). The
+  annotations are comments to the browser: the compiler is a dev tool, never a
+  build step. Turning them on cleared 272 diagnostics and found one real defect
+  (a duplicate `language` key in the Aliyun options); the rest were absent
+  annotations and null checks, so this was a file-at-a-time job, not a switch.
+  A new script opts in with the same comment line, and `check-types.mjs` picks
+  it up on its own.
 
 ---
 
 ## Checks
 
 ```bash
-npm run check        # the chain: html, links, the five hub suites, docs, then the doctor's self-test
-node check-html.mjs          # every built page's tags balanced and properly nested
+npm run check        # the chain: html, links, types, the five hub suites, docs, then the doctor's self-test
+node check-html.mjs          # every built page's tags balanced and properly nested, every id a script reads defined
 node check-links.mjs         # every local href/src resolves inside dist/
-node check-hub.mjs           # 66 expectations: auth gates, session, socket, /status, models, upstream, donations, the donation cap
+node check-types.mjs         # the scripts that opt in with // @ts-check type-check clean (skips when no tsc is installed)
+node check-hub.mjs           # 71 expectations: auth gates, session, socket, /status, /status/self, models, upstream, donations, the donation cap
 node check-hub-multi.mjs     # 9 expectations: 3 partners, even spread, pool stops at target
-node check-config.mjs        # 97 expectations: dynamic config, the page gate, per-role pages, the pool life cycle, session expiry
-node check-chat.mjs          # 38 expectations: forwarding, request signing, pool spend and refund, feature defaults, the per-caller 429
-node check-people.mjs        # 56 expectations: create, revoke, rotate, the state file, hashing at rest, the seeded superadmin across a restart
+node check-config.mjs        # 101 expectations: dynamic config, the page gate, the chat page, per-role pages, the pool life cycle, session expiry
+node check-chat.mjs          # 62 expectations: forwarding, request signing, pool spend and refund, feature defaults, the per-caller 429
+node check-people.mjs        # 57 expectations: create, revoke, rotate, the state file, hashing at rest, the seeded superadmin across a restart
 node check-docs.mjs          # the hand-off note still matches the code: every setting and path it names exists
 node doctor.mjs              # what is still open and the exact command that closes it (add --self-test to prove the report)
 node check-serve.mjs <url>   # every page and asset is actually served
@@ -346,11 +426,12 @@ app/
 │   ├── minter.js/.css minter behaviour + theme
 │   ├── glm-client.js  captcha client (GLM.mintCaptchaSerialized)
 │   ├── login.html     roles + key sign-in
-│   ├── user.html      the "lend an IP" page
+│   ├── chat.html/.js  the chat page every signed-in role gets
+│   ├── user.html/.js  what the hub can prove about your address
 │   ├── partner.html   the "lend accounts" page
 │   ├── admin.html/.js the operator panel
 │   ├── repos.html     reference-project dissection
-│   ├── roles.js       shared role logic (sign-in, switches, logs)
+│   ├── roles.js       shared role logic (sign-in, storage, logs)
 │   └── role.css
 ├── server/
 │   ├── hub.mjs        the backend (one file, no dependencies)

@@ -60,7 +60,7 @@ in memory on purpose. `HANDOFF.md` is the authoritative honest-status document;
 | Directory | Responsibility | Link |
 |---|---|---|
 | `server/` | HTTP + WebSocket backend: config, key→role→person identity, HMAC session cookies, mint job board, token pool life cycle, Aliyun verification, OpenAI-shaped chat forwarding, role-gated static serving with injected nav | [View Map](server/codemap.md) |
-| `public/` | The published static site: six pages, five IIFE scripts, four stylesheets, with a hub-or-demo dual mode and a `<!--nav-->` slot the hub fills | [View Map](public/codemap.md) |
+| `public/` | The published static site: seven pages, six IIFE scripts, four stylesheets, with a hub-or-demo dual mode and a `<!--nav-->` slot the hub fills | [View Map](public/codemap.md) |
 | `dist/` | Build output, byte-identical copy of `public/`; served by the hub on the same origin as the socket | — (generated) |
 | `.repos/` | Reference-project archives + `fetch-repos.mjs`; excluded from build and publish | — (research) |
 
@@ -70,13 +70,13 @@ in memory on purpose. `HANDOFF.md` is the authoritative honest-status document;
 browser (partner)                      hub (server/hub.mjs)                 internet
  index.html + minter.js  ──WS /minter/ws──▶  job board, pool, sessions  ──▶  Aliyun verify
    └ needs GLM global                        role gates, nav injection      ──▶ z.ai / chatglm.cn
- login/user/partner/admin  ──HTTP────────▶  /session /status /tokens /config
+ login/user/partner/admin/chat  ──HTTP──▶  /session /status /status/self /tokens /config /v1/*
 ```
 
 Three flows carry the system, each written out as an arrow trace in
 `server/codemap.md`: **sign-in** (key → HMAC cookie → page gate), **mint**
 (upgrade → hello → job → captcha → pool → sweep/refill), **chat**
-(resolve model → source routing → forward, or 501/502).
+(resolve model → continuation → source routing → forward, or 501/502).
 
 ## Where to start by task
 
@@ -86,7 +86,7 @@ Three flows carry the system, each written out as an arrow trace in
 | Change a page's behaviour | `public/codemap.md` for the page→script→route table |
 | Change the mint protocol | `server/hub.mjs` `onMinterSocket` **and** `public/minter.js` — the two must move together |
 | Change the captcha widget config | `GET /config` in the hub *and* `glm-client.js loadConfig()` |
-| Verify anything | `npm run check` (eight suites + the doctor's self-test, 266 counted assertions) - see `HANDOFF.md` "Verifying" |
+| Verify anything | `npm run check` (nine suites + the doctor's self-test, 300 counted assertions) - see `HANDOFF.md` "Verifying" |
 
 ## Traps (from `HANDOFF.md`, still true)
 

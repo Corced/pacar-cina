@@ -1,3 +1,4 @@
+// @ts-check
 /* minter.js — clean-room rebuild of the minter page's controller script.
  *
  * Observed behaviour it reproduces (capture/page.html inline script + how-it-works.md):
@@ -25,15 +26,38 @@
 (function () {
   'use strict';
 
+  /** The one call this page makes on glm-client.js's global — the whole surface it reads. */
+  /** @typedef {{ mintCaptchaSerialized: () => Promise<any> }} GlmClient */
+
+  /** A job payload from the hub: mint-only, and untrusted JSON. */
+  /** @typedef {{ mint?: boolean }} MintJob */
+
+  /** One message from the hub over the minter socket — untrusted JSON. */
+  /** @typedef {{ type?: string, id?: string, payload?: any }} HubMessage */
+
+  /** window plus what this page reads off it. */
+  /** @typedef {Window & {
+   *   GLM_HUB_URL?: string,
+   *   GLM_IP_LOOKUP_URL?: string,
+   *   GLM?: GlmClient
+   * }} MinterWindow */
+
+  var win = /** @type {MinterWindow} */ (/** @type {unknown} */ (window));
+  var GLM = /** @type {GlmClient} */ (/** @type {any} */ (win).GLM);
+
+  // webkitAudioContext is the prefixed one, so it is not on the Window type.
+  var AC = window.AudioContext || /** @type {any} */ (window).webkitAudioContext;
+
+  /** @param {string} id @returns {HTMLElement | null} */
   var $ = function (id) { return document.getElementById(id); };
 
   /* ---------- 1. background-mode arming ---------- */
 
-  var audioCtx = null, osc = null, armed = false;
+  var audioCtx = /** @type {AudioContext | null} */ (null), osc = /** @type {OscillatorNode | null} */ (null), armed = false;
 
   function armKeepAlive() {
     try {
-      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (!audioCtx) audioCtx = new AC();
       if (audioCtx.state === 'suspended') audioCtx.resume();
       if (!osc) {
         osc = audioCtx.createOscillator();
@@ -70,15 +94,16 @@
   /* ---------- 2. connection to the mint hub ---------- */
 
   var served = 0, failed = 0, inflight = 0;
-  var ws = null, backoff = 800, logEl = $('wlog'), logged = 0;
+  var ws = /** @type {WebSocket | null} */ (null), backoff = 800, logEl = /** @type {HTMLElement} */ ($('wlog')), logged = 0;
   var PROTO = 2;
   var PING_EVERY_MS = 25000;
   var HUB_RETRY_WHEN_DEMO_MS = 30000;
   var everOpened = false;
-  var pingTimer = null, hubProbeTimer = null, refuseTimer = null;
+  var pingTimer = /** @type {ReturnType<typeof setInterval> | null} */ (null), hubProbeTimer = /** @type {ReturnType<typeof setInterval> | null} */ (null), refuseTimer = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
   var wsSupported = typeof WebSocket !== 'undefined';
-  var demoMode = false, demoTimer = null;
+  var demoMode = false, demoTimer = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
 
+  /** @param {boolean} on @param {string} msg */
   function setState(on, msg) {
     var dot = $('w-dot'), state = $('w-state'), m = $('w-msg');
     if (!dot || !state || !m) return;
@@ -88,30 +113,33 @@
     m.innerHTML = msg;
   }
 
+  /** @param {string} s */
   function log(s) {
     if (logged === 0) logEl.innerHTML = '';
     var d = document.createElement('div');
     d.textContent = s;
     logEl.insertBefore(d, logEl.firstChild);
     logged++;
-    while (logEl.childNodes.length > 40) logEl.removeChild(logEl.lastChild);
+    while (logEl.childNodes.length > 40) logEl.removeChild(/** @type {ChildNode} */ (logEl.lastChild));
   }
 
   function tick() {
-    $('w-served').textContent = served;
-    $('w-inflight').textContent = inflight;
+    /** @type {HTMLElement} */ ($('w-served')).textContent = String(served);
+    /** @type {HTMLElement} */ ($('w-inflight')).textContent = String(inflight);
   }
 
   /* The hub address. On the original this is /minter/ws on its own origin.
    * The session cookie is HttpOnly and SameSite=Lax: it rides along only when
    * the socket is the page's own origin, which is the default. If GLM_HUB_URL
    * points elsewhere, the hub will refuse the socket — sign in on that origin. */
+  /** @returns {string} */
   function hubUrl() {
-    if (window.GLM_HUB_URL) return window.GLM_HUB_URL;
+    if (win.GLM_HUB_URL) return win.GLM_HUB_URL;
     var proto = location.protocol === 'https:' ? 'wss' : 'ws';
     return proto + '://' + location.host + '/minter/ws';
   }
 
+  /** @param {any} obj */
   function send(obj) {
     if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
   }
@@ -126,6 +154,7 @@
 
   /* ---------- 3. mint jobs ---------- */
 
+  /** @param {string | undefined} id @param {MintJob} payload */
   function handleJob(id, payload) {
     inflight++; tick();
     var t0 = Date.now();
@@ -136,7 +165,7 @@
     var p;
     if (!payload || !payload.mint) {
       p = Promise.reject(new Error('minter page: non-mint job refused'));
-    } else if (window.GLM && typeof GLM.mintCaptchaSerialized === 'function') {
+    } else if (win.GLM && typeof GLM.mintCaptchaSerialized === 'function') {
       p = Promise.resolve().then(GLM.mintCaptchaSerialized);
     } else {
       p = Promise.reject(new Error('glm-client.js failed to load'));
@@ -165,7 +194,7 @@
     if (!wsSupported) { enterDemo('no WebSocket support'); return; }
     if (ws) { try { ws.close(); } catch (e) {} }
 
-    var socket;
+    /** @type {WebSocket} */ var socket;
     try { socket = new WebSocket(hubUrl()); }
     catch (e) { enterDemo('bad hub URL'); return; }
     ws = socket;
@@ -180,7 +209,7 @@
     };
 
     socket.onmessage = function (ev) {
-      var msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      /** @type {HubMessage} */ var msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
       if (msg.type === 'ping') { send({ type: 'pong' }); return; }
       if (msg.type === 'pong') return;
       if (msg.type === 'job') handleJob(msg.id, msg.payload);
@@ -216,11 +245,12 @@
     socket.onerror = function () { try { socket.close(); } catch (e) {} };
   }
 
+  /** @returns {Promise<string>} */
   function fetchPublicIp() {
     // Same rule as roles.js: the hub says where to look, the captured
     // original is the default when no hub answers.
-    var url = window.GLM_IP_LOOKUP_URL || 'https://api.ipify.org?format=json';
-    var ready = window.GLM_IP_LOOKUP_URL
+    var url = win.GLM_IP_LOOKUP_URL || 'https://api.ipify.org?format=json';
+    var ready = win.GLM_IP_LOOKUP_URL
       ? Promise.resolve(url)
       : fetch('/config', { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -242,10 +272,11 @@
    * socket case. When this runs we are unauthenticated, so only /status/self's
    * 401 shape matters: JSON with an error about a session is a hub refusing
    * us; HTML or a network failure is no hub. */
+  /** @param {(state: 'ok' | 'refused' | 'none') => void} cb */
   function probeHub(cb) {
     var base = '';
-    if (window.GLM_HUB_URL) {
-      try { base = new URL(window.GLM_HUB_URL).origin; } catch (e) { base = ''; }
+    if (win.GLM_HUB_URL) {
+      try { base = new URL(win.GLM_HUB_URL).origin; } catch (e) { base = ''; }
     } else {
       base = location.origin;
     }
@@ -266,13 +297,14 @@
    * Jobs spaced 20–45 s apart with random jitter, so mint activity is
    * spread evenly over time instead of arriving in bursts. */
 
+  /** @param {string} reason */
   function enterDemo(reason) {
     if (demoMode) return;
     demoMode = true;
     stopPings();
     setState(true, '<b style="color:var(--ok)">Connected.</b> Minting captchas for the pool. Thanks!');
     log('· no hub at ' + (location.host || 'this host') + '/minter/ws (' + reason + ') — local demo pool');
-    var nextJob = function () {
+    /** @type {() => void} */ var nextJob = function () {
       var wait = 20000 + Math.random() * 25000; // 20–45 s between jobs
       demoTimer = setTimeout(function () {
         handleJob('demo-' + Math.random().toString(36).slice(2, 8), { mint: true });
@@ -283,7 +315,7 @@
 
     // keep probing for a real hub in the background
     hubProbeTimer = setInterval(function () {
-      if (!demoMode) { clearInterval(hubProbeTimer); return; }
+      if (!demoMode) { clearInterval(/** @type {number} */ (hubProbeTimer)); return; }
       connect();
     }, HUB_RETRY_WHEN_DEMO_MS);
   }
@@ -299,10 +331,10 @@
 
   // fill the egress IP line (same source the original uses)
   fetchPublicIp().then(function (ip) {
-    $('w-ip').textContent = ip || '(could not detect)';
+    /** @type {HTMLElement} */ ($('w-ip')).textContent = ip || '(could not detect)';
   });
 
-  if (!window.GLM) {
+  if (!win.GLM) {
     setState(false, 'glm-client.js failed to load');
   } else {
     connect();

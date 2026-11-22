@@ -47,6 +47,17 @@ const unknown = settings.filter((s) => !hub.includes(s));
 check(unknown.length === 0, 'every setting the note names exists in the hub',
   unknown.length ? 'unknown: ' + unknown.join(', ') : settings.length + ' settings verified');
 
+/* ── the .env template must name settings that do something ── */
+// A template with a typo is the worst kind of quiet bug: the value looks set and
+// the hub never reads it. Every NAME= in .env.example (commented or not) has to
+// be a variable the hub actually reads.
+const example = readFileSync(join(root, '.env.example'), 'utf8');
+const exampleNames = [...new Set([...example.matchAll(/^#?\s*([A-Z][A-Z0-9_]+)=/gm)].map((m) => m[1]))];
+const phantom = exampleNames.filter((n) => !hub.includes(n));
+check(exampleNames.length >= 20, 'the .env template is a real template', exampleNames.length + ' names');
+check(phantom.length === 0, '.env.example names only variables the hub reads',
+  phantom.length ? 'not read by the hub: ' + phantom.join(', ') : exampleNames.length + ' names verified');
+
 /* ── every path it points at must exist ── */
 // Paths appear both in prose (`public/minter.js`) and in the plain listing at
 // the end, so both forms are collected. Only names with an extension count, so

@@ -219,6 +219,16 @@ const UPSTREAM = {
  * spin; it does not extend on repeat refusals. */
 const CHAT_CONCURRENCY = Math.max(1, Number(process.env.GLM_CHAT_CONCURRENCY || 4) || 4);
 const CHAT_COOLDOWN_MS = Math.max(0, Number(process.env.GLM_CHAT_COOLDOWN_MS || 5000) || 0);
+// Recent conversations kept for /status: enough to answer "whose chat was
+// that", small enough to serialize on every admin poll.
+const CHAT_LEDGER = 200;
+// Characters of one conversation the hub will replay on a continuation. A
+// client that sends only its new turn gets this much of the past prepended;
+// past that the oldest turns fall off, exactly as a context window would. The
+// ceiling is arithmetic, not hope: 200 chats × this many characters is what the
+// process can be made to hold.
+const CHAT_KEEP_CHARS = Math.max(0, Number(process.env.GLM_CHAT_KEEP_CHARS || 6000) || 0);
+const HUB_CHAT_ID = /^chat-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /* A donation is verified by an outbound call to Aliyun, so a partner pasting a
  * hundred values turns into a hundred exchanges in flight. Cap how many one
@@ -260,15 +270,18 @@ function randomUuid() {
     + hex.slice(16, 20) + '-' + hex.slice(20);
 }
 
+/* One message's text, whatever shape it arrived in. */
+function textOf(m) {
+  const c = m && m.content;
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c)) return c.map((p) => (p && typeof p.text === 'string' ? p.text : '')).join('');
+  return '';
+}
+
 /* The prompt the signature covers: the reference flattens the messages, so the
  * signature stays valid whatever the message shape was. */
 function promptOf(messages) {
-  return (Array.isArray(messages) ? messages : []).map((m) => {
-    const c = m && m.content;
-    if (typeof c === 'string') return c;
-    if (Array.isArray(c)) return c.map((p) => (p && typeof p.text === 'string' ? p.text : '')).join('');
-    return '';
-  }).filter(Boolean).join('\n\n').trim();
+  return (Array.isArray(messages) ? messages : []).map(textOf).filter(Boolean).join('\n\n').trim();
 }
 
 function signZai(prompt, token) {
@@ -318,25 +331,72 @@ function buildCatalog() {
 }
 const CATALOG = buildCatalog();
 
-/* Resolve a requested model id to {entry, declared} or null.
- * Accepts the full catalog ids, a bare base ("glm-4.7" → z.ai/glm-4.7),
- * and suffix order in any arrangement the id names. */
-function resolveModel(id) {
-  const requested = String(id || '').trim();
-  if (!requested) return null;
-  let hit = CATALOG.find((m) => m.id === requested);
-  if (hit) return { entry: hit, declared: hit.features.slice() };
-  // bare base name: default source is z.ai (what the original project spoke)
-  hit = CATALOG.find((m) => m.base === requested && m.features.length === 0);
-  if (hit) return { entry: hit, declared: [] };
-  // a bare name with suffixes, e.g. "glm-5.3-search"
-  for (const m of CATALOG) {
-    if (m.features.length && requested === m.base + m.features.map((f) =>
-      '-' + ({ thinking: 'think', web_search: 'search', deep_research: 'deepresearch' }[f])).join('')) {
-      return { entry: m, declared: m.features.slice() };
-    }
+/* Parse `<source>/<upstream id>[-suffix]` without consulting the catalog.
+ *
+ * The split is from the RIGHT because the upstream keeps adding words to its
+ * own model names (`-max`, `-air`, …). A parser that split from the left, or
+ * one that required the base to be in BASE_MODELS, would refuse a model the
+ * upstream actually serves — which is the whole bug this replaces. */
+function parseModelId(id) {
+  const raw = String(id || '').trim();
+  if (!raw) return null;
+  let source = 'z.ai';
+  let rest = raw;
+  const slash = raw.indexOf('/');
+  if (slash >= 0) {
+    source = raw.slice(0, slash);
+    rest = raw.slice(slash + 1);
+    if (!SOURCES[source]) return null;
   }
-  return null;
+  const features = [];
+  let base = rest;
+  for (;;) {
+    const s = SUFFIXES.find((x) => base.endsWith(x.name));
+    if (!s) break;
+    if (!features.includes(s.feature)) features.push(s.feature);
+    base = base.slice(0, -s.name.length);
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(base)) return null;
+  return { source, rest, base, features };
+}
+
+/* The catalog is the published list, not an allow-list: an id outside it still
+ * forwards (labelled `known: false`) instead of being refused, because the
+ * upstream is the authority on which models exist. Two guards keep that from
+ * becoming "forward anything": the source must be one this hub speaks, and an
+ * unknown base must start with `glm` — the family these endpoints serve. A name
+ * outside both rules is pinned with GLM_MODEL_EXTRA, which puts it in CATALOG
+ * and is matched exactly, so a pinned name is never re-split as base + suffix. */
+function resolveModel(rawId) {
+  const requested = String(rawId || '').trim();
+  if (!requested) return null;
+
+  const exact = CATALOG.find((m) => m.id === requested);
+  if (exact) return { entry: exact, declared: exact.features.slice(), known: true };
+
+  // A bare base is an alias for its z.ai entry, as it always was.
+  const bare = CATALOG.find((m) => m.base === requested);
+  if (bare) return { entry: bare, declared: [], known: true };
+
+  const parsed = parseModelId(requested);
+  if (!parsed) return null;
+
+  const hit = CATALOG.find((m) => m.source === parsed.source && m.base === parsed.base
+    && m.features.length === parsed.features.length
+    && m.features.every((f) => parsed.features.includes(f)));
+  if (hit) return { entry: hit, declared: parsed.features.slice(), known: true };
+
+  if (!/^glm/i.test(parsed.base)) return null;
+  return {
+    entry: {
+      id: parsed.source + '/' + parsed.rest,
+      source: parsed.source,
+      base: parsed.base,
+      features: parsed.features,
+    },
+    declared: parsed.features.slice(),
+    known: false,
+  };
 }
 
 
@@ -357,6 +417,7 @@ const state = {
   donatedSeq: 0,
   donateThrottled: 0,           // donations refused because that caller was already verifying
   verifying: new Map(),         // chatKey -> count of Aliyun exchanges in flight
+  chats: new Map(),             // chat_id -> {id, who, tag, model, at, status}: the tracer
   people: new Map(),            // person name -> {name, role, key, at, uses}
   chat: { requests: 0, ok: 0, failed: 0, throttled: 0, poolSpent: 0, lastModel: null, lastStatus: null, lastAt: null },
   captchaChecks: [],          // every Aliyun exchange attempted, with its outcome
@@ -1003,6 +1064,16 @@ function statusPayload(req) {
       throttled: state.donateThrottled,
       note: 'each captcha-shaped donation is one outbound Aliyun exchange; a caller past this many gets 429 and records nothing',
     },
+    chatLedger: {
+      kept: state.chats.size,
+      // Counts, never content: /status is polled every 5s by a browser and has
+      // no business carrying what anyone asked.
+      recent: [...state.chats.values()].slice(-20).reverse().map((c) => ({
+        id: c.id, who: c.who, tag: c.tag, model: c.model, at: c.at,
+        status: c.status, turns: c.turns.length,
+      })),
+      note: 'the last 20 conversations this hub sent upstream: chat id, the caller it belongs to, the model, the status and how many turns it kept — the text is never published',
+    },
     captcha: {
       api: CAPTCHA_API,
       checked: state.captchaChecks.length,
@@ -1063,12 +1134,97 @@ function statusPayload(req) {
  * IP, which is the only identity an anonymous caller has (so two people behind
  * one NAT share a budget — the honest ceiling of IP counting). A forwarded
  * address is believed only when GLM_TRUST_PROXY says a proxy rewrote it. */
+/* The caller's address. A forwarded one is believed only when GLM_TRUST_PROXY
+ * says a proxy we control rewrote it — otherwise every caller could name their
+ * own address. */
+function addrOf(req) {
+  const fwd = TRUST_PROXY ? (req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
+  return fwd || (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+}
+
 function chatKeyOf(req, session) {
   if (session && session.name) return 'person:' + session.name;
   if (session) return 'role:' + session.role;
-  const fwd = TRUST_PROXY ? (req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
-  const ip = fwd || (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
-  return 'ip:' + ip;
+  return 'ip:' + addrOf(req);
+}
+
+/* ── the conversation tracer, and multi-turn ─────────────────────────────── */
+
+/* One chat is one conversation. The hub mints the id, hands it back as
+ * x-glm-chat, and will continue that conversation when the caller hands it back
+ * — but only for the caller it was minted for. So a conversation can be resumed
+ * (the model remembers the topic without the client resending it) and cannot be
+ * hijacked (an id alone is not enough; the tag must match). The row also keeps
+ * the turns the hub relayed, which is what a client sending only its new line
+ * gets prepended. Attribution is the same mechanism: an 8-hex HMAC of the caller
+ * key, keyed by a per-process secret, so the tag is stable for one identity in
+ * one process, cannot be precomputed, and carries no name to chat.z.ai. The name
+ * stays here, in a bounded ledger the admin can read; the upstream only ever
+ * sees the tag. */
+const CALLER_SALT = randomBytes(16);
+
+function callerTag(who) {
+  return createHmac('sha256', CALLER_SALT).update(String(who)).digest('hex').slice(0, 8);
+}
+
+function noteChat(id, who, tag, model) {
+  const row = { id, who, tag, model, at: Date.now(), status: 'pending', turns: [] };
+  state.chats.set(id, row);
+  // Insertion-ordered, so the oldest is the first key. A ledger that grows for
+  // the life of the process is the one thing /status must not get.
+  while (state.chats.size > CHAT_LEDGER) state.chats.delete(state.chats.keys().next().value);
+  return row;
+}
+
+/* Drop the oldest turns until the conversation fits the budget. Two messages
+ * always survive, so a continuation is never left with nothing to continue, and
+ * a leading system message is never dropped: the persona is what the rest of
+ * the conversation is an answer to. */
+function trimChat(row) {
+  const t = row.turns;
+  let size = t.reduce((a, m) => a + textOf(m).length, 0);
+  let i = 0;
+  while (i < t.length && t[i].role === 'system') i++;
+  while (size > CHAT_KEEP_CHARS && t.length - i > 2) {
+    size -= textOf(t[i]).length;
+    t.splice(i, 1);
+  }
+}
+
+/* Is this request the whole conversation (a client replaying its own history),
+ * or just the next turn? The test is the opening message: a replay starts the
+ * same way. Anything else is appended, so one client can send history and
+ * another can send only the new line. */
+function continuesOwnHistory(stored, incoming) {
+  if (!stored.length || incoming.length < 2) return false;
+  const a = stored[0];
+  const b = incoming[0];
+  return Boolean(a && b) && a.role === b.role && textOf(a) === textOf(b);
+}
+
+/* The assistant's words, out of either response shape. The hub already buffers
+ * the whole upstream body (it re-sends it verbatim), so a streamed reply can be
+ * read here too — one bad frame must not lose the rest of the answer. */
+function replyOf(text, streaming) {
+  if (streaming) {
+    let out = '';
+    for (const line of String(text).split(/\r?\n/)) {
+      if (!line.startsWith('data:')) continue;
+      const chunk = line.slice(5).trim();
+      if (!chunk || chunk === '[DONE]') continue;
+      try {
+        const d = (JSON.parse(chunk).choices || [])[0] || {};
+        const piece = (d.delta && d.delta.content) || (d.message && d.message.content) || '';
+        if (typeof piece === 'string') out += piece;
+      } catch { /* keep reading */ }
+    }
+    return out;
+  }
+  try {
+    const d = (JSON.parse(text).choices || [])[0] || {};
+    const c = d.message && d.message.content;
+    return typeof c === 'string' ? c : '';
+  } catch { return ''; }
 }
 
 function takeChatSlot(key) {
@@ -1230,12 +1386,16 @@ function finishJob(id, partner, outcome, detail) {
 /* ── the socket ──────────────────────────────────────────────────────────── */
 
 function onMinterSocket(conn, req, session) {
+  // `ip` is what the page claims and what the pool shows; `addr` is what the
+  // socket actually arrived from, and the only one used to decide "is this
+  // caller's address currently an egress exit".
   const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
     || (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
 
   const partner = {
     id: newId(4),
     ip: '',
+    addr: addrOf(req),
     proto: 0,
     mints: 0,
     role: session ? session.role : 'anonymous',
@@ -1340,6 +1500,7 @@ const ROLE_HOME = {
 
 /* Pages that are nobody's "home" but that some roles may legitimately open. */
 const SHARED_LINKS = {
+  chat: { href: '/chat.html', label: 'chat' },
   minter: { href: '/index.html', label: 'minter' },
   repos: { href: '/repos.html', label: 'reference repos' },
   login: { href: '/login.html', label: 'switch role' },
@@ -1351,6 +1512,9 @@ function navFor(role) {
   const items = [];
   const home = ROLE_HOME[role];
   if (home) items.push(home);
+  // Chat is for every signed-in role: it is the one thing the hub exists to
+  // serve, and the route behind it is open anyway.
+  if (role) items.push(SHARED_LINKS.chat);
   if (role === 'partner') {
     items.push({ href: '/user.html', label: 'IP lending' });
   }
@@ -1515,6 +1679,14 @@ const server = createServer(async (req, res) => {
   // The public half: what a partner page may know about itself, no operator data.
   if (p === '/status/self') {
     if (!session) return json(res, 401, { error: 'no session' });
+    // "Is my address an exit right now" is answerable, so it is answered: a
+    // socket counts when it is still open and either belongs to this person or
+    // arrived from this address. The claim a page sends in `hello` is display
+    // only (`ip`); matching uses `addr`, which this hub observed itself.
+    const address = addrOf(req);
+    const mine = [...state.partners.values()].filter((q) => q.state !== 'gone'
+      && ((session.name && q.person === session.name) || q.addr === address));
+    const online = [...state.partners.values()].filter((q) => q.state !== 'gone').length;
     return json(res, 200, {
       ok: true,
       role: session.role,
@@ -1522,6 +1694,24 @@ const server = createServer(async (req, res) => {
       socket: '/minter/ws',
       pool: { target: TARGET, lowwater: LOWWATER },
       authMode: 'keyed roles: partner, admin and superadmin need a key, user is open',
+      you: {
+        name: session.name || null,
+        address,
+        offered: mine.length > 0,
+        sockets: mine.length,
+        mints: mine.reduce((a, q) => a + (q.mints || 0), 0),
+        since: mine.length ? Math.min(...mine.map((q) => q.since)) : null,
+      },
+      poolNow: {
+        tokens: state.tokens.length,
+        inflight: state.inflight,
+        online,
+        minted: [...state.partners.values()].reduce((a, q) => a + (q.mints || 0), 0),
+        failed: state.failed,
+        target: TARGET,
+        lowwater: LOWWATER,
+        note: 'live pool state for the page that shows it; the per-caller detail is /status, which is admin only',
+      },
     });
   }
 
@@ -1560,6 +1750,14 @@ const server = createServer(async (req, res) => {
       return json(res, 400, { error: 'unknown person: ' + named + ' (the hub knows: ' + [...state.people.keys()].join(', ') + ')' });
     } else if (owner && owner.role !== role) {
       return json(res, 400, { error: named + ' holds the ' + owner.role + ' key, not ' + role });
+    } else if (named) {
+      // A name was offered and the key is valid for the role, but it is not that
+      // person's own key. Dropping the name here would sign someone in as a
+      // generic role while the page said a name was set - refuse instead.
+      return json(res, 400, {
+        error: 'that name does not match the key presented: ' + named + ' needs ' + named
+          + "'s own key, or send no name and sign in as the role",
+      });
     }
 
     const cookie = issueSession(role, identity);
@@ -1963,13 +2161,15 @@ const server = createServer(async (req, res) => {
       return json(res, 400, {
         error: {
           message: 'unknown model. The catalog is <source>/<base>[-suffix] — e.g. z.ai/glm-5.3, '
-            + 'cn/glm-5.3-think — with suffixes -think, -search, -deepresearch. GET /v1/models lists it.',
+            + 'cn/glm-5.3-think — with suffixes -think, -search, -deepresearch. A base outside '
+            + 'the catalog still forwards if it starts with glm (z.ai/glm-5.3-max-think works); '
+            + 'pin any other name with GLM_MODEL_EXTRA. GET /v1/models lists the catalog.',
           type: 'invalid_request_error',
           requested_model: body.model || null,
         },
       });
     }
-    const { entry, declared } = resolved;
+    const { entry, declared, known } = resolved;
 
     // No upstream configured: refuse honestly instead of guessing.
     if (!UPSTREAM.url) {
@@ -1980,6 +2180,7 @@ const server = createServer(async (req, res) => {
           type: 'not_implemented',
           requested_model: body.model || null,
           resolved_model: entry.id,
+          model_known: known,
         },
       });
     }
@@ -2017,15 +2218,85 @@ const server = createServer(async (req, res) => {
       });
     }
 
+    // Continuation, before anything is spent: a chat_id this hub minted, handed
+    // back, continues that conversation — but only for the caller it was minted
+    // for. An id that is unknown and an id that belongs to somebody else answer
+    // exactly the same 404, so a chat id is not a way to test whose it was.
+    // An id of any other shape is a client's own (some tools send one expecting
+    // it to be ignored); that keeps being ignored, as it always was.
+    const tag = callerTag(who);
+    const incoming = Array.isArray(body.messages) ? body.messages : [];
+    let chatRow = null;
+    let ignoredId = false;
+    if (body.chat_id) {
+      const asked = String(body.chat_id);
+      const prev = state.chats.get(asked);
+      if (prev && prev.tag === tag) {
+        // Two turns on one conversation at once would interleave into one
+        // history: the second would be built without the first's reply, and the
+        // two would then overwrite each other's turns. One turn at a time.
+        if (prev.busy) {
+          releaseChatSlot(who);
+          return json(res, 409, {
+            error: {
+              message: 'this conversation already has a turn in flight; wait for its answer, then '
+                + 'send the next one',
+              type: 'chat_busy',
+              requested_chat: asked,
+            },
+          });
+        }
+        chatRow = prev;
+      } else if (prev || HUB_CHAT_ID.test(asked)) {
+        // The slot was taken above for a request that is not going anywhere:
+        // give it back, or four refusals would cost this caller its whole
+        // budget with nothing in flight.
+        releaseChatSlot(who);
+        return json(res, 404, {
+          error: {
+            message: 'no such conversation for this caller. Omit chat_id to start one — the id '
+              + 'in x-glm-chat is the one to hand back, and it only continues for the caller it '
+              + 'was minted for.',
+            type: 'chat_not_found',
+            requested_chat: asked,
+          },
+        });
+      } else ignoredId = true;
+    }
+
+    // What actually goes upstream. A client that replays its own history is
+    // taken at its word; a client that sends only the new turn gets the turns
+    // the hub kept. The hub never invents history: it only replays what it
+    // already relayed to this conversation.
+    const messages = chatRow && chatRow.turns.length
+      ? (continuesOwnHistory(chatRow.turns, incoming) ? incoming : chatRow.turns.concat(incoming))
+      : incoming;
+    const before = chatRow ? chatRow.turns : null;
+
     // Spend the pool: take the oldest minted param and attach it as the
     // captcha_verify_param the upstream requires. This is the whole reason the
     // minter page exists — a pool nothing spends is a counter, not a resource.
     const spent = consumeToken();
-    const prompt = promptOf(body.messages);
+    const prompt = promptOf(messages);
+
+    const chatId = chatRow ? chatRow.id : 'chat-' + randomUuid();
+    if (chatRow) chatRow.model = entry.id;
+    else chatRow = noteChat(chatId, who, tag, entry.id);
+    chatRow.busy = true;
+    chatRow.turns = messages.slice();
+    res.setHeader('x-glm-chat', chatId);
+    res.setHeader('x-glm-caller', tag);
+    res.setHeader('x-glm-caller-kind', who.slice(0, who.indexOf(':')));
+    res.setHeader('x-glm-model-known', known ? 'true' : 'false');
+    if (body.chat_id) {
+      res.setHeader('x-glm-chat-continued', before ? 'true' : 'false');
+      if (ignoredId) res.setHeader('x-glm-chat-supplied', 'ignored');
+    }
+
     const payload = {
       model: entry.base,
-      chat_id: 'chat-' + randomUuid(),
-      messages: body.messages,
+      chat_id: chatId,
+      messages,
       signature_prompt: prompt,
       stream: Boolean(body.stream),
     };
@@ -2058,6 +2329,10 @@ const server = createServer(async (req, res) => {
     if (UPSTREAM.key) headers.authorization = 'Bearer ' + UPSTREAM.key;
     headers['x-fe-version'] = FE_VERSION;
     headers['x-region'] = dest.region;
+    // The caller tag travels upstream so a conversation is attributable in the
+    // upstream's own logs; the name never does. Unknown headers are ignored by
+    // an HTTP peer, and the signature does not cover it.
+    headers['x-glm-caller'] = tag;
     // The signature covers the prompt, so it must be computed from the same
     // prompt the body carries.
     headers['x-signature'] = signZai(prompt, UPSTREAM.key);
@@ -2077,6 +2352,7 @@ const server = createServer(async (req, res) => {
       clearTimeout(timer);
       state.chat.lastStatus = up.status;
       state.chat.lastAt = Date.now();
+      chatRow.status = up.status;
       const text = await up.text();
       // Rejected because of the credential or the captcha, not because of the
       // question: put the entry back at the head so it is not silently burned.
@@ -2097,8 +2373,23 @@ const server = createServer(async (req, res) => {
         'x-glm-pool': spent ? 'spent' : 'empty',
       });
       res.end(text);
-      if (up.ok) { state.chat.ok++; log('chat -> ' + entry.id + ' ok'); }
-      else { state.chat.failed++; log('chat -> ' + entry.id + ' HTTP ' + up.status); }
+      if (up.ok) {
+        // Remember what was actually relayed, so the next turn can be a single
+        // new message. A reply the hub could not read (an upstream shape it does
+        // not know) is not remembered as an empty answer.
+        const reply = replyOf(text, Boolean(body.stream));
+        if (reply) chatRow.turns.push({ role: 'assistant', content: reply });
+        trimChat(chatRow);
+        state.chat.ok++;
+        log('chat ' + chatId + ' (' + who + ') -> ' + entry.id + ' ok, '
+          + chatRow.turns.length + ' turn(s) kept');
+      } else {
+        // Nothing was answered, so the unanswered turn must not be remembered:
+        // a retry would otherwise see it twice.
+        chatRow.turns = before || [];
+        state.chat.failed++;
+        log('chat ' + chatId + ' (' + who + ') -> ' + entry.id + ' HTTP ' + up.status);
+      }
       // The response is already sent: returning falls through to the static
       // handler and throws ERR_HTTP_HEADERS_SENT. Every other route returns.
       refillPool();
@@ -2113,6 +2404,8 @@ const server = createServer(async (req, res) => {
       state.chat.failed++;
       state.chat.lastStatus = 'error';
       state.chat.lastAt = Date.now();
+      chatRow.status = 'error';
+      chatRow.turns = before || [];
       return json(res, 502, {
         error: {
           message: 'upstream unreachable: ' + (e && e.name === 'AbortError'
@@ -2125,8 +2418,9 @@ const server = createServer(async (req, res) => {
     } finally {
       // Every admitted request gives its slot back, on success, on refusal from
       // upstream, and on a throw — otherwise four failures would lock a caller
-      // out until the process restarted.
+      // out until the process restarted. The conversation is free again too.
       releaseChatSlot(who);
+      chatRow.busy = false;
     }
   }
 

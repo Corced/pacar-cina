@@ -2,30 +2,35 @@
 
 ## Responsibility
 
-The whole published site: six HTML pages, five scripts, four stylesheets. Plain
+The whole published site: seven HTML pages, six scripts, four stylesheets. Plain
 HTML/CSS/JS, no bundler, no imports, no build step beyond a verbatim copy —
 `build.mjs` copies this directory to `dist/` and fails if server code leaks in.
 Each page is a self-contained document that loads shared scripts with `<script
 src>` and calls a namespace it exposes on `window`.
 
 This is the *partner surface* of the project: the minter tab partners keep open,
-the sign-in front door, the two "lend something" pages, the operator panel, and
-a reference-projects write-up.
+the chat page every signed-in role uses, the sign-in front door, the two "lend
+something" pages, the operator panel, and a reference-projects write-up.
 
 ## Design
 
 **IIFE modules with a global namespace.** Every script is `(function(){…})()`
 (strict mode) and exposes at most one global: `window.GLM` with
 `mintCaptchaSerialized()` from `glm-client.js`, `window.ROLES` with `{role,
-mountLogin, mountUser, mountPartner, arm, log}` from `roles.js`. `minter.js` and
-`admin.js` are page-scoped and expose nothing. No ES modules, so a page can be
-opened as a plain file.
+mountLogin, mountPartner, arm, log}` from `roles.js`, `window.CHAT` (`mount`) from
+`chat.js`, `window.USER` (`mount`) from `user.js`. `minter.js` and `admin.js` are
+page-scoped and expose nothing. No ES modules, so a page can be opened as a
+plain file.
 
 **Dual mode: hub or static, never faked.** Every script probes for a hub and
 branches:
 
 - `roles.js hub()` → `GET /session`, content-type must be JSON, cached once.
 - `admin.js refresh()` → `GET /status`, the same content-type tell.
+- `chat.js loadModels()` → `GET /v1/models`; a non-JSON body switches the model
+  picker to a typed id instead of leaving an empty select.
+- `user.js poll()` → `GET /status/self`; every figure goes back to a dash and the
+  page says why when the hub cannot answer.
 - `glm-client.js loadConfig()` → `GET /config`.
 - `minter.js` → socket open/refused, then `GET /status/self` to distinguish
   "hub refused you" from "no hub here".
@@ -46,7 +51,7 @@ access check.
 **Design tokens in one file.** `minter.css` defines the recorded GitHub-dark
 palette (`--bg #0d1117`, `--fg #e6edf3`, `--acc #2ea043`), the `.card` /
 `.stat` / `.warnbox` / `.dot` primitives and the nav bar. The other three
-stylesheets only add per-page layout: `role.css` (login/user/partner),
+stylesheets only add per-page layout: `role.css` (login/user/partner/chat),
 `admin.css` (panel grid), `repos.css` (long-form comparison page).
 
 **Background-tab keep-alive.** Both `minter.js` and `roles.js` arm a silent
@@ -79,15 +84,50 @@ hidden button, resolve the serialized param) ; else `demoMint()` resolving after
 a realistic delay. Errors are `GLMError(message, code)` so `minter.js` can send
 `kind:'upstream'` with a code.
 
-**roles.js**. Page entrypoints: `mountLogin()`, `mountUser()`, `mountPartner()`.
-`mountLogin` reads `?next=`, reveals a key box for partner/admin/superadmin,
-`signIn(role, key)` → `POST /session {role, key}` → on 200 remembers the role in
-`localStorage['glm2api.role']` and navigates to `loginNext(HOME[role])`.
+**roles.js**. Page entrypoints: `mountLogin()`, `mountPartner()`. `mountLogin`
+reads `?next=`, reveals a key box for partner/admin/superadmin, `signIn(role,
+key)` → `POST /session {role, key}` → on 200 remembers the role in
+`localStorage['glm2api.role']` and navigates to `loginNext(HOME[role])`. The role
+cards are `<a>` elements, so the click handler calls `preventDefault()` first —
+without it the browser follows the href, the hub bounces back to `login.html`,
+and the key box never appears (that was a real bug; `check-html.mjs` trips on
+the line going missing).
 `mountPartner` posts the token form to `/tokens`, then polls `/tokens` and
-`/tokens?mine=1` for contribution counts and per-donation statuses.
-`mountUser` shows the egress IP (`ipLookupUrl()` from `/config`, then the JSON
-lookup) and remembers the egress/solve/tab-only switches locally — a toggle
-only, as the page states.
+`/tokens?mine=1` for contribution counts and per-donation statuses. `noHub()`
+probes `/status/self` so the page can say whether a hub is actually there
+(200 signed in, 401 hub without a session, anything else static) instead of
+always claiming there is none.
+
+**chat.js**. `mount()` fills the picker from `/v1/models` (grouped by
+`meta.source`, features labelled as declared), then each `send()` POSTs the full
+displayed history to `/v1/chat/completions` with `chat_id` when the hub has
+minted one. One turn at a time: the send button is disabled while a request is in
+flight and during a 429 cooldown countdown. `x-glm-chat` is kept across every
+refusal except 404, where the id stays on screen and a "start fresh" button
+clears it. A turn with no readable assistant reply goes back into the composer —
+the hub rolls its own history back the same way, so the two sides stay in step.
+The transcript is memory only.
+
+**user.js**. `mount()` polls `GET /status/self` every 5 s and on
+`visibilitychange`; renders `you` (address as the hub observed it, whether a
+minter socket from it is connected, captchas that address returned) and
+`poolNow` (tokens/in-flight/online/minted/failed). A failed poll blanks every
+figure rather than leaving the previous one up.
+
+**All six scripts are JSDoc-typed.** Each opens with `// @ts-check` and a
+`@typedef` for the wire shape it reads (`Turn`/`CatalogModel`/`Exchange` in
+`chat.js`, `Self`/`LastSeen` in `user.js`, `Status`/`Partner`/`Person`/
+`Donation` in `admin.js`, `Scene`/`AliyunOptions`/`GlmClient` in
+`glm-client.js`, `GlmClient`/`MintJob`/`HubMessage` in `minter.js`,
+`HubProbe` in `roles.js`), plus `$`/`input()`/`select()`/`button()` accessors so
+an input is an `HTMLInputElement`, not a bare `HTMLElement`. Nothing is
+compiled: the
+comments are comments to the browser, and `check-types.mjs` runs `tsc --strict`
+over the files that opt in when a `tsc` is on PATH (skipping loudly when not).
+Turning them on cleared 272 diagnostics across the six and found one real defect
+— a duplicate `language` key in the Aliyun options. A new script joins by adding
+the comment and its typedefs; untrusted JSON stays `any`, because the hub's
+payloads are the contract, not the types.
 
 **admin.js**. `refresh()` polls `/status` every 5 s → `fillStatus(d)` writes
 every panel (including `chat.poolSpent`, the count of pool entries the chat path
@@ -101,8 +141,9 @@ and `personAction()` post the mutations and show a new key exactly once;
 clear-sessions button posts `/admin/session/clear`; `wrongRoleNote()` surfaces
 `?wrongrole=`.
 
-**Pages.** `login.html` and `partner.html`/`user.html` are script-mounted
-(`ROLES.mountX()` inline after the script tag); `index.html` is static markup
+**Pages.** `login.html`, `partner.html` and `user.html` are script-mounted
+(`ROLES.mountLogin()`/`ROLES.mountPartner()`/`USER.mount()` inline after the
+script tag); `chat.html` is `CHAT.mount()`; `index.html` is static markup
 whose ids (`w-state`, `w-served`, `w-inflight`, `w-dot`, `w-msg`, `w-ip`,
 `w-keep`, `wlog`) are the entire contract with `minter.js`; `admin.html` is a
 large static skeleton filled by `admin.js` id-by-id; `repos.html` is pure
@@ -114,7 +155,8 @@ content, no script.
 |---|---|---|
 | `index.html` (minter) | `minter.css`, `minter.js` → needs `glm-client.js` global `GLM` | `WS /minter/ws`, `GET /config` (indirect), `GET /status/self`, ipify |
 | `login.html` (front door) | `minter.css`, `role.css`, `roles.js` | `GET /session` (probe), `POST /session` |
-| `user.html` | `minter.css`, `role.css`, `roles.js` | `GET /session`, `GET /config` |
+| `chat.html` | `minter.css`, `role.css`, `chat.js` | `GET /v1/models`, `POST /v1/chat/completions` (headers `x-glm-chat`/`-caller`/`-pool`/`-model-known`/`-chat-continued`) |
+| `user.html` | `minter.css`, `role.css`, `user.js` | `GET /status/self` (5 s) |
 | `partner.html` | `minter.css`, `role.css`, `roles.js` | `GET /session`, `POST /tokens`, `GET /tokens`, `GET /tokens?mine=1` |
 | `admin.html` | `minter.css`, `admin.css`, `admin.js` | `GET /status` (5 s), `POST /session`, `GET /tokens?all=1`, `POST /features`, `POST /admin/session/clear`, `POST /people`, `POST /people/revoke`, `POST /people/rotate` |
 | Session counters | `/status` `activeSessions`, `expiredSessions`, `sessionTtlMs`; expiry is enforced in `readSession`, not by the cookie |

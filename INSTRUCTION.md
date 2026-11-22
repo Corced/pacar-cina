@@ -43,11 +43,16 @@ restart generates new ones. Then, in a browser:
 1. Open `http://127.0.0.1:5082/`. Signed out, it redirects to `login.html`;
    signed in, it goes straight to your role's page. **`/` is not the minter.**
 2. Sign in as **partner** with the partner key → you land on `partner.html`.
-3. Click **minter** in the nav bar → `index.html` connects, shows **LIVE**, and
-   begins receiving mint jobs.
-4. Sign in as **admin** with the admin key → `admin.html` shows partners,
+3. Click **chat** in the nav bar → pick a model, send a message. The next turn
+   continues the same conversation: the page hands the hub's `x-glm-chat` id
+   back, so it knows the topic. Without `GLM_UPSTREAM` the page answers
+   **501 with the reason** — that is the honest refusal, not a bug.
+4. Click **minter** in the nav bar → `index.html` connects, shows **LIVE**, and
+   begins receiving mint jobs. `user.html` reports what the hub can prove about
+   your address; it does not solve anything itself.
+5. Sign in as **admin** with the admin key → `admin.html` shows partners,
    their egress IPs, the pool, the captcha counters and the feature toggles.
-5. Optionally, `superadmin` (key from `GLM_SUPERADMIN`, else generated and
+6. Optionally, `superadmin` (key from `GLM_SUPERADMIN`, else generated and
    printed once) creates and revokes people from the People card. With
    `GLM_STATE_FILE` set, that account and its key survive a restart too — the
    file keeps only a hash, so the printed key is still the one to keep.
@@ -193,6 +198,24 @@ That is the design, not a misconfiguration.
     `export`), `curl` is an alias for `Invoke-WebRequest` so write `curl.exe`
     for the real one, and a long-running `node server/hub.mjs` occupies the
     terminal — use a second one, or start it in the background.
+17. **A model id is parsed from the right, and a chat id only continues the
+    conversation that minted it.** `z.ai/glm-5.3-max-think` is base
+    `glm-5.3-max` + `-think`, and it forwards even though the catalog has no such
+    entry (`x-glm-model-known: false`). The base must start with `glm` unless the
+    whole id is pinned in `GLM_MODEL_EXTRA`. Hand back the `x-glm-chat` id as
+    `chat_id` and the hub replays the turns it relayed, so a one-line follow-up
+    still knows the topic; an id minted for someone else answers the same `404`
+    as an id that never existed, so two callers cannot share or borrow a
+    conversation, and a second turn sent before the first is answered gets
+    `409` (`chat_busy`) rather than interleaving two histories. Because
+    conversations live in memory, a **restart** turns the
+    next continuation into that `404` — if a client suddenly forgets the topic
+    after a restart, that is why, not a bug. `/status.chatLedger.recent` maps the
+    last 20 ids to the person and the turn count (never the text).
+18. **Run one hub per `GLM_STATE_FILE`, and one per chat ledger.** The people
+    file is saved whole, so a second process overwrites it with a stale
+    directory; and conversations are in memory, so a second hub answers `404` to
+    the first one's chat ids. Two hubs is not horizontal scaling here.
 
 ## Where to go next
 

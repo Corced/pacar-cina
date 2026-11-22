@@ -133,6 +133,14 @@ try {
   check('the created person signs in under their own name',
     carolR.status === 200 && carolR.body.name === 'carol', JSON.stringify(carolR.body));
 
+  // The login page now offers a name box, so this is reachable from a browser:
+  // a name plus someone else's valid key must be refused, never signed in as a
+  // nameless role while the page claims the name was used.
+  const carolNotHerKey = await signIn('partner', 'test-partner-key', 'carol');
+  check('a name with a role key is refused, not silently dropped',
+    carolNotHerKey.status === 400 && /does not match the key/.test(carolNotHerKey.body.error || ''),
+    'HTTP ' + carolNotHerKey.status + ' ' + JSON.stringify(carolNotHerKey.body));
+
   const madeByPartner = await api('POST', '/people', { name: 'eve', role: 'admin' }, partnerR.cookie);
   check('a partner cannot create people (403)', madeByPartner.status === 403, 'HTTP ' + madeByPartner.status);
   const noSession = await api('POST', '/people/revoke', { name: 'carol' }, null);

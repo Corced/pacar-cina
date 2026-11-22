@@ -17,50 +17,52 @@
   <div class="bar">
     <div class="logo">◇</div>
     <div class="grow">
-      <h1><b>user</b> · lend an IP</h1>
-      <div class="sub">solve captchas, offer your address, stop any time</div>
+      <h1><b>user</b> · your contribution</h1>
+      <div class="sub">what the hub can prove about this address, and nothing it cannot</div>
     </div>
-    <span class="who" id="who">no role chosen</span>
+    <span class="who" id="who">not read</span>
   </div>
 
-  <div class="warnbox" id="arm"><b style="color:var(--bad)">Tap anywhere to arm background mode</b> — until then this tab may be throttled or frozen when you switch away.</div>
-
   <div class="card">
-    <h2>Your contribution</h2>
+    <h2>This address, as the hub saw it</h2>
     <div class="kv">
-      <span class="k">Egress IP (what z.ai sees)</span><span class="v mono" id="ip">…</span>
-      <span class="k">This tab has been open</span><span class="v" id="uptime">0s</span>
-      <span class="k">Captchas solved</span><span class="v">0</span>
+      <span class="k">Signed in as</span><span class="v" id="y-name">—</span>
+      <span class="k">Address</span><span class="v mono" id="y-addr">—</span>
+      <span class="k">An egress exit now</span><span class="v"><span class="pill" id="y-offered">—</span></span>
+      <span class="k">Minter sockets from it</span><span class="v" id="y-sockets">—</span>
+      <span class="k">Captchas those sockets returned</span><span class="v" id="y-mints">—</span>
+      <span class="k">Connected since</span><span class="v" id="y-since">—</span>
     </div>
-    <p class="note">The solver count is zero because nothing is asking for a mint yet. A hub would send
-    jobs down the socket and these numbers would move.</p>
+    <p class="note" id="readnote">Reading <span class="mono">GET /status/self</span>…</p>
   </div>
 
   <div class="card">
-    <h2>What your address is used for</h2>
-    <p class="hint" style="margin-top:0">
-      The pool sends some requests out through your address instead of the operator's. That spread is
-      the whole point: if one address gets marked by the far end, the others keep working.
-    </p>
-    <p class="note" style="margin-top:8px">
-      This is your address doing the job a Tor exit normally would — one egress among many, rotating
-      by request rather than fixed. Your address is not a Tor node and is not announced as one; it is
-      simply one of several exits the pool can pick, so a mark against one does not fall on all.
-    </p>
-    <div class="sw">
-      <div class="grow"><div class="nm">Offer my IP as an egress point</div><div class="ds">This is the user role's privilege. Off by default.</div></div>
-      <div class="tgl" role="switch" aria-checked="false" data-sw="egress" data-name="Egress offer" tabindex="0"><i></i></div>
+    <h2>Pool, right now</h2>
+    <div class="kv">
+      <span class="k">Tokens available</span><span class="v" id="p-tokens">—</span>
+      <span class="k">Target</span><span class="v" id="p-target">—</span>
+      <span class="k">Low water</span><span class="v" id="p-low">—</span>
+      <span class="k">Mints in flight</span><span class="v" id="p-inflight">—</span>
+      <span class="k">Minter sockets connected</span><span class="v" id="p-online">—</span>
+      <span class="k">Mints served by this hub</span><span class="v" id="p-minted">—</span>
+      <span class="k">Mint jobs that failed</span><span class="v" id="p-failed">—</span>
     </div>
-    <div class="sw">
-      <div class="grow"><div class="nm">Solve captchas for the pool</div><div class="ds">All three roles can do this.</div></div>
-      <div class="tgl" role="switch" aria-checked="false" data-sw="solve" data-name="Captcha solving" tabindex="0"><i></i></div>
-    </div>
-    <div class="sw">
-      <div class="grow"><div class="nm">Only while this tab is open</div><div class="ds">Nothing runs when the tab is closed or asleep.</div></div>
-      <div class="tgl" role="switch" aria-checked="true" data-sw="tabonly" data-name="Tab-only mode" tabindex="0"><i></i></div>
-    </div>
-    <p class="note">These switches are remembered in this browser and nothing else happens: there is no
-    hub to tell about them. The page is honest about that rather than pretending the offer is live.</p>
+    <div class="meter" style="margin-top:12px"><i id="p-bar" style="width:0%"></i></div>
+    <p class="note">Tokens are captcha params the minter tabs produced, counted live. The hub asks
+    for more below <b>low water</b> and stops at <b>target</b>. Every figure above was read from the
+    hub on this refresh: a dash means it was not read, never zero.</p>
+  </div>
+
+  <div class="card">
+    <h2>Where solving happens</h2>
+    <p class="hint" style="margin-top:0">This page holds no socket, so it cannot solve anything.
+    Open the minter tab: that is where solving happens — this page only reports.</p>
+    <div class="row"><a class="btn go" href="index.html">Open the minter tab</a></div>
+    <p class="note">This page used to carry three switches — offer my IP, solve captchas, only while
+    this tab is open. Nothing read them: no endpoint took an egress offer, so they recorded intent and
+    changed nothing. They are gone rather than sitting there looking functional. The offer itself is
+    real wherever a signed-in minter socket is connected, and the row above says whether that is true
+    of this address right now.</p>
   </div>
 
   <div class="card">
@@ -70,6 +72,7 @@
       <li class="no">Raise the account-pool allowance</li>
       <li class="no">See other people in the pool</li>
       <li class="no">Change features or clear sessions</li>
+      <li class="no">Start or stop solving from here; that is the minter tab</li>
     </ul>
     <p class="note">If you have accounts to contribute, sign in as a partner on the
     <a href="login.html">sign-in page</a> — that role gets its own page.</p>
@@ -81,7 +84,7 @@
   </div>
 </div>
 
-<script src="roles.js"></script>
-<script>ROLES.mountUser();</script>
+<script src="user.js"></script>
+<script>USER.mount();</script>
 </body>
 </html>

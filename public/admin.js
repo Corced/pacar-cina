@@ -1,3 +1,4 @@
+// @ts-check
 /* admin.js — control panel for the minter hub.
  *
  * Two modes, same as the minter page:
@@ -14,21 +15,91 @@
 (function () {
   'use strict';
 
+  /** GET /status as this panel reads it. Fields the code tests with `!= null`
+   *  stay optional; the few it divides or adds up are required because the
+   *  panel already assumes the hub sent them. */
+  /** @typedef {{
+   *   mode?: string,
+   *   port?: number | string,
+   *   deploy?: { apiBase?: string, wsBase?: string, source?: string, note?: string },
+   *   tokenCount?: number,
+   *   userName?: string,
+   *   feVersion?: string,
+   *   activeSessions?: number,
+   *   expiredSessions?: number,
+   *   authMode?: string,
+   *   wsAuth?: string,
+   *   minter?: {
+   *     online?: number, served?: number, inflight?: number, egressIps?: string,
+   *     jobTimeoutMs?: number, spread?: string
+   *   },
+   *   pool?: {
+   *     available: number, target: number, lowwater: number,
+   *     low?: boolean, consumed?: number, expired?: number, ttlMs?: number,
+   *     donatedTokens?: number, donatedSessions?: number
+   *   },
+   *   people?: { count?: number, storage?: string, list?: Person[] },
+   *   upstream?: { configured?: boolean },
+   *   chat?: {
+   *     requests?: number, ok?: number, failed?: number, lastModel?: string,
+   *     lastStatus?: number, poolSpent?: number, throttled?: number
+   *   },
+   *   chatLimit?: { inFlight: number, concurrency: number },
+   *   donationLimit?: { verifying: number, concurrency: number, throttled?: number },
+   *   chatLedger?: { recent?: { id: string, who?: string, turns?: number }[] },
+   *   captcha?: { checked?: number, valid?: number, invalid?: number },
+   *   features?: { [k: string]: boolean },
+   *   models?: string[],
+   *   partners?: Partner[]
+   * }} Status */
+
+  /** One row of GET /status's partner list. */
+  /** @typedef {{
+   *   id: string, person?: string, ip?: string, role?: string,
+   *   proto?: string, mints?: number
+   * }} Partner */
+
+  /** One row of /status's people list. */
+  /** @typedef {{
+   *   name: string, role: string, source?: string, pinned?: string,
+   *   uses?: number, donations?: number
+   * }} Person */
+
+  /** One row of GET /tokens?all=1's donation list. */
+  /** @typedef {{
+   *   status: string, kind: string, fp: string, person?: string, checkedAt?: number
+   * }} Donation */
+
+  /** window plus the one thing this page reads off it. */
+  /** @typedef {Window & { GLM_HUB_URL?: string }} AdminWindow */
+
+  var win = /** @type {AdminWindow} */ (/** @type {unknown} */ (window));
+
   var STATUS_POLL_MS = 5000;   // the reference dashboards poll every 5 s
-  var HUB = (window.GLM_HUB_URL || '').replace(/\/$/, '') || location.origin;
+  var HUB = (win.GLM_HUB_URL || '').replace(/\/$/, '') || location.origin;
   var api = HUB + '/status';
 
   var hasHub = false;
   var started = Date.now();
   var authState = 'unknown';   // unknown | ok | needed | forbidden
 
+  /** @param {string} id @returns {HTMLElement | null} */
   function $(id) { return document.getElementById(id); }
+  /** @param {string} id @returns {HTMLInputElement | null} */
+  function input(id) { return /** @type {HTMLInputElement | null} */ ($(id)); }
+  /** @param {string} id @returns {HTMLSelectElement | null} */
+  function select(id) { return /** @type {HTMLSelectElement | null} */ ($(id)); }
+  /** @param {string} id @returns {HTMLButtonElement | null} */
+  function button(id) { return /** @type {HTMLButtonElement | null} */ ($(id)); }
+
+  /** @param {string} id @param {unknown} v */
   function setText(id, v) {
     var el = $(id);
     if (el) el.textContent = (v === undefined || v === null || v === '') ? '—' : String(v);
   }
 
   /* Show the key prompt: this panel now needs an admin session. */
+  /** @param {string} msg */
   function needKey(msg) {
     authState = 'needed';
     var box = $('akeybox');
@@ -36,16 +107,17 @@
     box.hidden = false;
     var why = $('akeywhy');
     if (why) why.textContent = msg || 'This panel needs an admin session.';
-    var health = $('a-health');
+    // The panel's own markup always carries these two pills.
+    var health = /** @type {HTMLElement} */ ($('a-health'));
     health.className = 'pill bad';
     health.innerHTML = '<span class="dot off"></span>locked';
-    var mode = $('a-mode');
+    var mode = /** @type {HTMLElement} */ ($('a-mode'));
     mode.className = 'pill bad';
     mode.textContent = 'needs admin key';
   }
 
   function grabKey() {
-    var f = $('akey');
+    var f = input('akey');
     var v = f ? f.value.trim() : '';
     var box = $('akeybox');
     if (!v) { log('no key entered'); return; }
@@ -72,11 +144,13 @@
       })
       .catch(function (e) {
         var why = $('akeywhy');
-        if (why) why.textContent = 'That key was not accepted: ' + e.message;
-        log('admin sign-in failed: ' + e.message);
+        var err = e instanceof Error ? e.message : String(e);
+        if (why) why.textContent = 'That key was not accepted: ' + err;
+        log('admin sign-in failed: ' + err);
       });
   }
 
+  /** @param {string} role @param {string} key @returns {Promise<{ s: number, d: any }>} */
   function postSession(role, key) {
     return fetch(HUB + '/session', {
       method: 'POST',
@@ -85,6 +159,7 @@
     }).then(function (r) { return r.json().then(function (d) { return { s: r.status, d: d }; }); });
   }
 
+  /** @param {string} msg */
   function log(msg) {
     var box = $('alog');
     if (!box) return;
@@ -92,9 +167,11 @@
     var row = document.createElement('div');
     row.textContent = t + '  ' + msg;
     box.insertBefore(row, box.firstChild);
-    while (box.childElementCount > 60) box.removeChild(box.lastChild);
+    // childElementCount > 60 means there is a last child to drop.
+    while (box.childElementCount > 60) box.removeChild(/** @type {ChildNode} */ (box.lastChild));
   }
 
+  /** @returns {string} */
   function uptime() {
     var s = Math.floor((Date.now() - started) / 1000);
     var m = Math.floor(s / 60);
@@ -104,12 +181,17 @@
 
   /* ── panel fill ─────────────────────────────────────────────── */
 
+  /** @param {Status} d */
   function fillStatus(d) {
     hasHub = true;
 
-    var health = $('a-health');
+    var health = /** @type {HTMLElement} */ ($('a-health'));
     health.className = 'pill ok';
     health.innerHTML = '<span class="dot on"></span>running';
+    // A live hub answered: the pill stops claiming it is still checking.
+    var live = /** @type {HTMLElement} */ ($('a-mode'));
+    live.className = 'pill ok';
+    live.textContent = 'connected';
 
     setText('s-up', d.mode || 'direct');
     setText('s-listen', d.port ? ':' + d.port : '—');
@@ -203,6 +285,11 @@
       setText('d-verifying', d.donationLimit.verifying + ' / ' + d.donationLimit.concurrency);
       setText('d-throttled', d.donationLimit.throttled);
     }
+    if (d.chatLedger && d.chatLedger.recent && d.chatLedger.recent.length) {
+      var lastChat = d.chatLedger.recent[0];
+      setText('u-chat', lastChat.id.slice(-8) + ' · ' + lastChat.who
+        + (lastChat.turns ? ' · ' + lastChat.turns + ' turn(s)' : ''));
+    }
 
     // Captcha verification counters.
     if (d.captcha) {
@@ -212,6 +299,7 @@
     }
 
     if (d.pool) {
+      var p = d.pool;
       var pct = p.target ? Math.min(100, Math.round((p.available / p.target) * 100)) : 0;
       var bar = $('t-bar');
       if (bar) bar.style.width = pct + '%';
@@ -220,15 +308,16 @@
     }
 
     if (d.features) {
-      Object.keys(d.features).forEach(function (k) {
-        var el = document.querySelector('[data-feat="' + k + '"]');
-        if (el) setOn(el, !!d.features[k]);
+      var feats = d.features;   // the callback below is a separate function to the checker
+      Object.keys(feats).forEach(function (k) {
+        var el = /** @type {HTMLElement | null} */ (document.querySelector('[data-feat="' + k + '"]'));
+        if (el) setOn(el, !!feats[k]);
       });
     }
 
     // Model catalog summary: bases seen across the ids.
     if (Array.isArray(d.models)) {
-      var bases = [];
+      /** @type {string[]} */ var bases = [];
       d.models.forEach(function (id) {
         var afterSlash = id.indexOf('/') >= 0 ? id.slice(id.indexOf('/') + 1) : id;
         var base = afterSlash;
@@ -242,21 +331,23 @@
     }
 
     if (Array.isArray(d.partners)) {
-      var body = $('pt-body');
+      var body = /** @type {HTMLElement} */ ($('pt-body'));
       if (!d.partners.length) {
         body.innerHTML = '<tr><td colspan="6" style="color:var(--mut)">no partners connected</td></tr>';
       } else {
         body.textContent = '';
         d.partners.forEach(function (p2) {
           var tr = document.createElement('tr');
-          [
+          /** @type {[string | number, string][]} */
+          var cells = [
             [p2.id, 'mono'],
             [p2.person || '—', ''],
             [p2.ip || '—', 'mono'],
             [p2.role || 'anon', ''],
             ['v' + (p2.proto || '?'), ''],
             [p2.mints != null ? p2.mints : 0, '']
-          ].forEach(function (cell) {
+          ];
+          cells.forEach(function (cell) {
             var td = document.createElement('td');
             if (cell[1]) td.className = cell[1];
             td.textContent = String(cell[0]);
@@ -274,6 +365,7 @@
   // People table: one row per person, with the two actions that end their access.
   // A pinned person's buttons are disabled rather than hidden — the reason is
   // visible instead of the row silently lacking a control.
+  /** @param {Person[]} list */
   function fillPeople(list) {
     var body = $('pp-body');
     if (!body) return;
@@ -288,6 +380,7 @@
       body.appendChild(empty);
       return;
     }
+    var box = body;   // the callback below is a separate function to the checker
     list.forEach(function (p) {
       var tr = document.createElement('tr');
       var name = document.createElement('td');
@@ -328,13 +421,14 @@
         acts.appendChild(b);
       });
       tr.appendChild(acts);
-      body.appendChild(tr);
+      box.appendChild(tr);
     });
   }
 
   // One place for both mutations: POST, then re-read the panel. Rotation hands
   // back the new key exactly once, so it is shown until the next action and
   // never fetched again — the hub does not keep it readable.
+  /** @param {string} what @param {string} name */
   function personAction(what, name) {
     if (what === 'revoke' && !window.confirm('Revoke ' + name + '? Their key, sessions and open sockets stop now.')) return;
     var url = HUB + '/people/' + what;
@@ -361,12 +455,12 @@
         }
         refresh();
       })
-      .catch(function (e) { log(what + ' failed: ' + (e && e.message)); });
+      .catch(function (e) { log(what + ' failed: ' + (e instanceof Error ? e.message : String(e))); });
   }
 
   function createPerson() {
-    var nameEl = $('pp-name');
-    var roleEl = $('pp-role');
+    var nameEl = input('pp-name');
+    var roleEl = select('pp-role');
     var name = nameEl ? nameEl.value.trim() : '';
     if (!name) { log('a person needs a name'); return; }
     fetch(HUB + '/people', {
@@ -387,7 +481,7 @@
         log('created person ' + o.d.name + ' (' + o.d.role + ')');
         refresh();
       })
-      .catch(function (e) { log('create failed: ' + (e && e.message)); });
+      .catch(function (e) { log('create failed: ' + (e instanceof Error ? e.message : String(e))); });
   }
 
   // Donations table: fingerprints + statuses, admin only. Never any value.
@@ -395,11 +489,13 @@
     fetch('/tokens?all=1', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
+        /** @type {{ [k: string]: string }} */
         var pillIds = { valid: 'd-valid', invalid: 'd-invalid', unverified: 'd-unverified' };
         if (d && d.ok && Array.isArray(d.donations)) {
           setText('d-held', d.donations.length);
+          /** @type {{ [k: string]: number }} */
           var counts = { valid: 0, invalid: 0, unverified: 0 };
-          d.donations.forEach(function (x) {
+          d.donations.forEach(/** @param {Donation} x */ function (x) {
             if (counts[x.status] !== undefined) counts[x.status]++;
           });
           Object.keys(pillIds).forEach(function (k) {
@@ -412,11 +508,13 @@
             return;
           }
           body.textContent = '';
-          d.donations.forEach(function (x) {
+          var box = body;   // the callback below is a separate function to the checker
+          d.donations.forEach(/** @param {Donation} x */ function (x) {
             var tr = document.createElement('tr');
             var st = document.createElement('span');
             st.className = 'pill ' + (x.status === 'valid' ? 'ok' : x.status === 'invalid' ? 'bad' : 'info');
             st.textContent = x.status;
+            /** @type {[string | HTMLElement, string][]} */
             var cells = [
               [x.kind, ''],
               [x.fp, 'mono'],
@@ -431,19 +529,20 @@
               else td.textContent = String(cell[0]);
               tr.appendChild(td);
             });
-            body.appendChild(tr);
+            box.appendChild(tr);
           });
         }
       })
       .catch(function () { /* no hub: leave the shape */ });
   }
 
+  /** @param {string} reason */
   function noHub(reason) {
     hasHub = false;
-    var health = $('a-health');
+    var health = /** @type {HTMLElement} */ ($('a-health'));
     health.className = 'pill warn';
     health.innerHTML = '<span class="dot off"></span>no hub';
-    var mode = $('a-mode');
+    var mode = /** @type {HTMLElement} */ ($('a-mode'));
     mode.className = 'pill warn';
     mode.textContent = 'static preview';
     log('no hub at ' + api + ' (' + reason + ') — panels show shape only');
@@ -453,7 +552,7 @@
 
   function refresh() {
     var ctl = typeof AbortController === 'function' ? new AbortController() : null;
-    var timer = ctl ? setTimeout(function () { ctl.abort(); }, 4000) : null;
+    var timer = ctl ? setTimeout(function () { ctl && ctl.abort(); }, 4000) : null;
 
     fetch(api, {
       signal: ctl ? ctl.signal : undefined,
@@ -486,23 +585,26 @@
       })
       .catch(function (e) {
         if (timer) clearTimeout(timer);
-        if (!$('a-mode').textContent.match(/static/)) noHub(e.message || 'unreachable');
+        var mode = /** @type {HTMLElement} */ ($('a-mode'));
+        if (!mode.textContent.match(/static/)) noHub((e instanceof Error ? e.message : String(e)) || 'unreachable');
       })
       .then(function () { setText('s-up-time', uptime()); });
   }
 
   /* ── toggles (work locally; post when a hub exists) ─────────── */
 
+  /** @param {HTMLElement} el @param {boolean} on */
   function setOn(el, on) {
     el.textContent = on ? 'ON' : 'OFF';
     el.className = 'tog ' + (on ? 'on' : 'off');
   }
 
-  document.querySelectorAll('[data-feat]').forEach(function (el) {
+  document.querySelectorAll('[data-feat]').forEach(function (node) {
+    var el = /** @type {HTMLElement} */ (node);
     el.addEventListener('click', function () {
       var on = el.textContent !== 'ON';
       setOn(el, on);
-      var body = {}; body[el.dataset.feat] = on;
+      /** @type {{ [k: string]: boolean }} */ var body = {}; body[/** @type {string} */ (el.dataset.feat)] = on;
       if (!hasHub) { log('feature ' + el.dataset.feat + ' -> ' + (on ? 'on' : 'off') + ' (local only)'); return; }
       fetch(HUB + '/features', {
         method: 'POST',
@@ -516,11 +618,12 @@
           return;
         }
         log('feature ' + el.dataset.feat + ' -> ' + (on ? 'on' : 'off'));
-      }).catch(function (e) { log('feature post failed: ' + e.message); });
+      }).catch(function (e) { log('feature post failed: ' + (e instanceof Error ? e.message : String(e))); });
     });
   });
 
-  document.querySelectorAll('[data-egress]').forEach(function (el) {
+  document.querySelectorAll('[data-egress]').forEach(function (node) {
+    var el = /** @type {HTMLElement} */ (node);
     el.addEventListener('click', function () {
       var on = el.textContent !== 'ON';
       setOn(el, on);
@@ -528,21 +631,21 @@
     });
   });
 
-  var btn = $('a-refresh');
+  var btn = button('a-refresh');
   if (btn) btn.addEventListener('click', function () { refresh(); log('manual refresh'); });
 
-  var go = $('akeygo');
+  var go = button('akeygo');
   if (go) go.addEventListener('click', grabKey);
-  var keyIn = $('akey');
+  var keyIn = input('akey');
   if (keyIn) keyIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') grabKey(); });
 
-  var clr = $('a-clear');
+  var clr = button('a-clear');
   if (clr) clr.addEventListener('click', function () {
     var box = $('alog'); if (box) box.textContent = '';
     log('log cleared');
   });
 
-  var reset = $('a-reset');
+  var reset = button('a-reset');
   if (reset) reset.addEventListener('click', function () {
     if (!hasHub) { log('drop partners: no hub to obey this (local only)'); return; }
     fetch(HUB + '/admin/session/clear', { method: 'POST', credentials: 'same-origin' })
@@ -553,12 +656,12 @@
         }
         return r.json().then(function (d) { log('dropped ' + d.dropped + ' partner session(s)'); });
       })
-      .catch(function (e) { log('drop failed: ' + e.message); });
+      .catch(function (e) { log('drop failed: ' + (e instanceof Error ? e.message : String(e))); });
   });
 
-  var addPerson = $('pp-add');
+  var addPerson = button('pp-add');
   if (addPerson) addPerson.addEventListener('click', createPerson);
-  var nameIn = $('pp-name');
+  var nameIn = input('pp-name');
   if (nameIn) nameIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') createPerson(); });
   // Creating is superadmin-only, so an admin sees a disabled control with the
   // reason instead of a button that silently 403s.
@@ -566,9 +669,9 @@
     fetch(HUB + '/session', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
-        var add = $('pp-add');
-        var nameIn = $('pp-name');
-        var sel = $('pp-role');
+        var add = button('pp-add');
+        var nameIn = input('pp-name');
+        var sel = select('pp-role');
         var superadmin = Boolean(d && d.ok && d.role === 'superadmin');
         if (add) {
           add.disabled = !superadmin;

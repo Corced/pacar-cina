@@ -1,0 +1,30 @@
+# Secrets and local state first: a leaked .env is a leaked hub.
+.env
+.env.*
+!.env.example
+
+# `npm run build` output. The hub serves public/, not this, and check-html
+# reads it after a build — so it is regenerated, never edited.
+dist/
+
+# Codemap tool state (file fingerprints for change detection). Local only.
+.slim/
+
+# Reference-project archives, downloaded by `node fetch-repos.mjs`.
+# Research material; never published, never needed at runtime.
+.repos/
+
+# Zero runtime dependencies, but a stray `npm install` should not be committed.
+node_modules/
+
+# Local runtime output: hub logs, a state file mid-rename, temp dumps.
+*.log
+*.tmp
+
+# The browser driver's screenshots and traces.
+.playwright-mcp/
+
+# OS junk.
+.DS_Store
+Thumbs.db
+desktop.ini

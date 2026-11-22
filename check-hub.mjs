@@ -138,6 +138,18 @@ try {
 
   const self = await getJson('/status/self', partner.cookie);
   check('/status/self is open to any signed-in role', self.status === 200 && self.body.role === 'partner');
+  // The user page is built on this: what the hub can honestly say about the
+  // caller's own contribution, and the pool's live numbers.
+  check('/status/self says whether this address is an egress exit right now',
+    self.body.you && typeof self.body.you.address === 'string'
+      && self.body.you.offered === false && self.body.you.sockets === 0
+      && self.body.you.mints === 0,
+    JSON.stringify(self.body.you));
+  check('/status/self reports the live pool, not a placeholder',
+    self.body.poolNow && typeof self.body.poolNow.tokens === 'number'
+      && typeof self.body.poolNow.online === 'number'
+      && self.body.poolNow.target === self.body.pool.target,
+    JSON.stringify(self.body.poolNow));
 
   // �� the two state-changing routes are gated ��
   /* Both of these were reachable with no session at all: /features changed the
@@ -197,6 +209,16 @@ try {
 
   for (let i = 0; i < 40 && mintsSent === 0; i++) await sleep(150);
   check('partner receives a job with an id', mintsSent > 0, 'jobs received: ' + mintsSent);
+
+  // The user page's whole point: the hub can say whether this caller's address
+  // is an exit right now, and count what it returned. Matched on the address the
+  // hub observed, not on the one the page claims in `hello`.
+  const mineNow = await getJson('/status/self', partner.cookie);
+  check('/status/self sees this caller\'s live socket and what it returned',
+    mineNow.body.you.offered === true && mineNow.body.you.sockets >= 1
+      && mineNow.body.you.mints >= 1 && typeof mineNow.body.you.since === 'number'
+      && mineNow.body.poolNow.online >= 1,
+    JSON.stringify({ you: mineNow.body.you, online: mineNow.body.poolNow && mineNow.body.poolNow.online }));
 
   // ── the admin session reads the gated numbers ──
   let s1;
@@ -334,6 +356,21 @@ try {
     suffixCall.status === 501 && suffixCall.body.error.resolved_model === 'cn/glm-5.3-deepresearch',
     JSON.stringify(suffixCall.body.error && suffixCall.body.error.resolved_model));
 
+  // The upstream's own names grow (-max, -air), so resolution cannot be an
+  // allow-list: a glm base outside the catalog resolves by rule and is marked
+  // unknown instead of refused.
+  const ruleModel = await postJson('/v1/chat/completions',
+    { model: 'z.ai/glm-5.3-max-think', messages: [{ role: 'user', content: 'hi' }] }, null);
+  check('a base outside the catalog resolves by rule, not by allow-list',
+    ruleModel.status === 501
+      && ruleModel.body.error.resolved_model === 'z.ai/glm-5.3-max-think'
+      && ruleModel.body.error.model_known === false,
+    JSON.stringify(ruleModel.body.error));
+  const gpt = await postJson('/v1/chat/completions',
+    { model: 'z.ai/gpt-9', messages: [{ role: 'user', content: 'hi' }] }, null);
+  check('a non-glm base is still refused (400), even with a known source',
+    gpt.status === 400, 'HTTP ' + gpt.status);
+
   // ── per-person identity: GLM_PEOPLE=alice=partner:alice-secret,bob=admin:bob-secret ──
   const alice = await signIn('partner', 'alice-secret', 'alice');
   check('a person signs in under their own name', alice.name === 'alice', JSON.stringify(alice.body));
@@ -384,7 +421,12 @@ try {
     floodRefused && floodRefused.body && floodRefused.body.error.type === 'rate_limit_error'
       && floodRefused.body.error.limit === 4 && floodRefused.body.error.retry_after_seconds === 2,
     JSON.stringify(floodRefused && floodRefused.body));
-  await sleep(200);                      // let the accepted exchanges reach the stub
+  // Wait for the four accepted exchanges to reach the stub instead of assuming
+  // 200 ms is enough on a loaded machine — that assumption failed once in a
+  // full `npm run check` while passing alone. Then give a late fifth one room
+  // to arrive, so the assertion is about the cap, not about timing.
+  for (let i = 0; i < 60 && verifyCalls < 4; i++) await sleep(50);
+  await sleep(150);
   check('a refused donation never reaches Aliyun', verifyCalls === 4, 'calls=' + verifyCalls);
   const ledgerAfter = await getJson('/tokens', admin.cookie);
   check('a refused donation is not recorded in the ledger',

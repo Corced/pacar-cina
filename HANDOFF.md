@@ -53,12 +53,23 @@ Two consequences worth stating plainly, because they shape the design:
 ```bash
 npm run build     # copies public/ → dist/
 npm run hub       # starts the hub on 127.0.0.1:5082
+npm run hub:env   # the same, loading .env (copy .env.example first)
 npm run check     # the whole test suite (see Verifying)
 ```
+
+`.env` is only read by `npm run hub:env` — the hub itself looks for no dot env.
+`dist/`, `.slim/` and `.repos/` are generated or downloaded and git-ignored;
+`npm run build` and `node fetch-repos.mjs` bring them back.
 
 Open the hub's address. You land on the sign-in page — that is deliberate, `/`
 redirects there. Keys are printed to the console at startup when you have not
 set any; the `user` role needs no key.
+
+Sign in and the bar has three working things: **chat** (`/chat.html`, any
+role — pick a model, talk, and the next turn continues the same conversation),
+the **minter** (`/index.html`, the only page that solves captchas and feeds the
+pool), and your own page (`user.html` reports what the hub can prove about your
+address; `partner.html` takes donations; `admin.html` is the operator panel).
 
 There is no `npm install`. **Zero runtime dependencies** is a constraint, not an
 accident: `server/ws.mjs` is a hand-written WebSocket server so the WebSocket
@@ -123,8 +134,8 @@ process; past that the oldest is dropped. A check fills it to prove the cap.
 
 ## What actually works
 
-Each line was proven by a check in `npm run check` (266 assertions: 66 hub,
-97 config, 9 multi-partner, 38 chat, 56 people). "Proven" means an assertion
+Each line was proven by a check in `npm run check` (300 assertions: 71 hub,
+101 config, 9 multi-partner, 62 chat, 57 people). "Proven" means an assertion
 fails if it stops being true.
 
 **The spread - the core claim.** Three partners with different egress addresses
@@ -136,6 +147,21 @@ count against it. That is the whole reason the hub exists, and it is proven.
 signed HttpOnly cookie comes back. `/status` refuses you without an admin session
 (401) and refuses the wrong role (403). The mint socket refuses an upgrade with
 no session - `GLM_WS_AUTH=open` is the logged escape hatch.
+
+**The browser flow was walked end to end, not just the API.** A real browser
+signed in as partner on the front door (the key box appears only because the role
+card stops the link - without `preventDefault()` the href won and nobody could
+sign in), opened `/chat.html`, and talked twice through a local upstream stub:
+turn 1 reached the upstream with 1 message, turn 2 with 3 (its own history plus
+the ask) and was labelled `the hub continued this conversation`. Restarting the
+hub and sending a third turn produced `404 · conversation gone` with the id still
+on the page and a working "start a fresh conversation" button, and with no
+upstream set the page quoted the `501` in full. `user.html` polled
+`/status/self` and showed the hub's own numbers. Signing in with a name that is
+not the key's owner was refused by the hub and quoted on the page ("that name
+does not match the key presented"), and the same name with the person's own key
+landed on their page with the bar reading `partner · carol`. That walk is
+manual; the suites cover the same paths at the API level.
 
 **A session expires on time, on the server.** `GLM_SESSION_TTL_MS` is checked
 against the session's own age on every request, not left to the cookie: a raw
@@ -211,6 +237,38 @@ is turn a donation into capacity: donations are verified and recorded, never
 replayed upstream, so a partner pasting a thousand z.ai or chatglm.cn sessions
 adds zero chat throughput and mostly settles as `invalid`.
 
+**The model id is a rule, not a list; every chat is attributable.** The upstream
+keeps growing its own model names, so the suffix is stripped from the right:
+`z.ai/glm-5.3-max-think` means source `z.ai`, base `glm-5.3-max`, thinking on —
+forwarded even though no catalog entry exists, and labelled
+`x-glm-model-known: false` so a typo is visible instead of silently "known".
+Three guards keep that from meaning "forward anything": the source must be one
+this hub speaks, an unknown base must start with `glm`, and `GLM_MODEL_EXTRA`
+pins any other name exactly (an exact catalog id wins, so a base that genuinely
+ends in `-think` is never re-split).
+
+**A conversation resumes, and only for its own caller.** The hub mints the
+`chat_id`, returns it as `x-glm-chat`, and continues that conversation when the
+id comes back — replaying the turns it relayed (`GLM_CHAT_KEEP_CHARS`, 6000,
+oldest dropped first, a leading system message kept), so a client that sends
+only its new line still has the topic, while a client that sends its whole
+history is taken at its word and not duplicated. The row is bound to the
+caller's 8-hex HMAC tag, and an id belonging to somebody else gets the same
+`404` as an id that never existed, so it is not a probe. That is what makes two
+callers unable to bleed into each other on one shared upstream credential. One
+turn at a time: a second request on a conversation whose first is still in flight
+gets `409` `chat_busy`, because two would each be built without the other's reply
+and then overwrite each other's turns. Each
+reply carries `x-glm-chat`, `x-glm-caller`, `x-glm-caller-kind` and
+`x-glm-chat-continued`; the tag, never the name, rides upstream as
+`x-glm-caller`. `/status.chatLedger.recent` maps the last 20 ids back to their
+identity and reports the **turn count**, never the text. The honest limits:
+conversations are in memory, so a restart answers `404` and the client starts
+fresh, and 200 conversations is the ledger — the oldest is evicted, including
+someone else's, so a caller who churns chats evicts them; anyone who shares one
+person's key is that person; and the tag proves which hub user a chat belongs to
+— it cannot make one upstream account into many.
+
 **Identity is revocable at runtime.** A superadmin creates a person
 (`POST /people`) and sees the key once. An admin revokes or rotates
 (`POST /people/revoke`, `POST /people/rotate`): the key stops working on the
@@ -267,7 +325,7 @@ The whole path is proven against a local stub instead of an unreachable host:
 still picks the path, so `cn/…` keeps its own endpoint), the key rides as a
 bearer credential, `x-signature` is a real HMAC over the flattened prompt, and
 the suffix features arrive in the reference projects' `features` shape
-(`check-chat.mjs`, 38 assertions). But it has **never made a successful call to
+(`check-chat.mjs`, 62 assertions). But it has **never made a successful call to
 chat.z.ai or chatglm.cn**, because no credential was ever supplied.
 
 _Close it by:_ setting `GLM_UPSTREAM` and `GLM_UPSTREAM_KEY` to a real account,
@@ -550,6 +608,33 @@ body, which is the finding.
    widget. Do not treat it as a secret, and do not "fix" it by hiding it — that
    would break the widget.
 
+10. **One hub per state file.** `GLM_STATE_FILE` is saved whole (read the
+    directory, rewrite it), so two hubs pointed at one file — a blue/green pair, a
+    cluster behind a load balancer — silently lose whichever person the other
+    process did not have in memory. The chats are worse than that: they are
+    per-process, so a conversation started on hub A answers **404** on hub B.
+    Run one hub, and scale by putting more load on it, not by starting a second.
+
+11. **The frontend is not compiled, on purpose.** No TypeScript, no bundler, no
+    build step between `public/*.js` and the browser — the file you read is the
+    file that runs, which is what makes the browser failures above traceable.
+    Types arrive as JSDoc instead: all six scripts open with `// @ts-check` and
+    are checked by `check-types.mjs` with `tsc --strict` when one is on PATH,
+    skipped (loudly) when not. That skip is the rule, not an oversight:
+    `npm run check` must stay green on a machine with no TypeScript. The ratchet
+    is per file — the checker only looks at files that opt in — so a new script
+    joins by adding the comment and a `@typedef` for the wire shape it reads.
+    A real `.ts` migration means a compiler on every machine that runs this, so
+    don't start it in passing.
+
+    Worth knowing: TypeScript would **not** have caught the `personname` bug
+    (a script reading an id no page defines) — `getElementById` returns
+    `HTMLElement | null` either way. `check-html.mjs` catches that now, by
+    comparing every id a script reads against the ids the pages and the
+    run-time widgets define. What the JSDoc does catch is a field name: `tsc`
+    rejects `o.sentID` and `you.adress` with a "did you mean" — both of those
+    would otherwise have rendered a dash and said nothing.
+
 ---
 
 ## Verifying
@@ -558,18 +643,19 @@ body, which is the finding.
 npm run check
 ```
 
-Eight suites and the doctor's self-test, all must exit 0:
+Nine suites and the doctor's self-test, all must exit 0:
 
 | Suite                 | Assertions           | Covers                                                                                                 |
 | --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------ |
-| `check-html.mjs`      | —                    | tags balanced and properly nested                                                                      |
-| `check-links.mjs`     | 33 links + 6 anchors | every local reference **and** every `#anchor`, in-page and cross-page                                  |
-| `check-hub.mjs`       | 66                   | routes, auth, donations, the donation cap, verification, nav, gate                                      |
+| `check-html.mjs`      | —                    | tags balanced and properly nested, and every id a script reads is defined by a page or made at run time |
+| `check-types.mjs`     | —                    | all six scripts in `public/` type-check clean under `tsc --strict` (skips loudly when no tsc is installed) |
+| `check-links.mjs`     | 37 links + 6 anchors | every local reference **and** every `#anchor`, in-page and cross-page                                  |
+| `check-hub.mjs`       | 71                   | routes, auth, donations, the donation cap, verification, nav, gate, `/status/self`                     |
 | `check-hub-multi.mjs` | 9                    | the even spread across three partners                                                                  |
-| `check-config.mjs`    | 97                   | env-driven config, deployment addressing, role separation, server-side session expiry                  |
-| `check-chat.mjs`      | 38                   | forwarding, request signing, pool spend and refund, feature defaults, empty-pool labelling, the per-caller 429 |
-| `check-people.mjs`    | 56                   | create / revoke / rotate, live sessions and sockets dropped, the state file, hashing at rest, the seeded superadmin across a restart, a v1 file upgraded |
-| `check-docs.mjs`      | 18                   | this note and the README against the tree: settings, paths, stale claims, the gap-list floor           |
+| `check-config.mjs`    | 101                  | env-driven config, deployment addressing, role separation, server-side session expiry, the chat page    |
+| `check-chat.mjs`      | 62                   | forwarding, request signing, pool spend and refund, feature defaults, empty-pool labelling, the per-caller 429, the model rule, the conversation tracer |
+| `check-people.mjs`    | 57                   | create / revoke / rotate, live sessions and sockets dropped, the state file, hashing at rest, the seeded superadmin across a restart, a v1 file upgraded |
+| `check-docs.mjs`      | 20                   | this note and the README against the tree: settings, paths, stale claims, the gap-list floor, the .env template |
 | `doctor.mjs --self-test` | 9                | the report reads this note honestly: gap count, a closing step per gap, a key never printed, 200 the only "proven" |
 
 `check-chat.mjs` starts its own local stub for the upstream, so the whole chat
@@ -594,10 +680,13 @@ public/index.html     the rebuild of the captured page (the minter).
 public/minter.js      its behaviour: socket, jobs, background mode, IP lookup.
 public/glm-client.js  the captcha client: SDK loading, minting, signing.
 public/login.html     the front door: role picker.
+public/chat.html      the chat page every signed-in role gets.
+public/chat.js        its behaviour: catalog, one turn at a time, chat-id resume.
 public/admin.html     the operator panel.
 public/partner.html   the partner's page: donations and their status.
-public/user.html      the user's page: lend an IP.
-public/roles.js       shared browser helpers: IP, switches, sign-in, notes.
+public/user.html      the user's page: what the hub can prove about this address.
+public/user.js        its 5 s poll of /status/self.
+public/roles.js       shared browser helpers: IP, sign-in, notes, logging.
 public/repos.html     the three reference projects, dissected.
 public/minter.css     the original's design tokens; also the nav bar's styles.
 check-*.mjs           the suite.

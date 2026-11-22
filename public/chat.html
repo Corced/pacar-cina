@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<title>glm2api · chat</title>
+<link rel="stylesheet" href="minter.css">
+<link rel="stylesheet" href="role.css">
+</head>
+<body>
+<div class="wrap narrow">
+
+  <!--nav-->
+
+  <div class="bar chat-bar">
+    <div class="logo">▤</div>
+    <div class="grow">
+      <h1><b>chat</b> · through this hub</h1>
+      <div class="sub">one turn at a time; the hub keeps the conversation, this tab keeps the text</div>
+    </div>
+    <button class="btn" id="newchat" type="button">New chat</button>
+    <div class="pick">
+      <select class="in" id="model" aria-label="model id"></select>
+      <input class="in" id="modelfree" type="text" spellcheck="false" hidden
+             placeholder="typed model id, e.g. z.ai/glm-5.3">
+    </div>
+  </div>
+
+  <p class="note" id="modelnote" style="margin:-8px 0 14px">Loading the catalog from <span class="mono">GET /v1/models</span>…</p>
+
+  <div class="card">
+    <h2>Conversation</h2>
+    <div class="chat" id="chat">
+      <p class="hint" id="empty" style="margin:0">Nothing yet. The first turn starts a conversation and the hub returns its id; every turn after that hands the id back, so the history is not pasted twice.</p>
+    </div>
+
+    <div class="field" style="margin:12px 0 0">
+      <textarea class="in" id="msg" rows="3"
+        placeholder="Ask the model. Enter makes a new line; Ctrl/Cmd+Enter sends."></textarea>
+    </div>
+    <div class="row" style="margin-top:9px">
+      <button class="btn go" id="send" type="button">Send</button>
+      <button class="btn" id="recover" type="button" hidden>Start a fresh conversation</button>
+      <span class="note" id="hint" style="margin:0">Ctrl/Cmd+Enter sends. A turn that gets no answer goes back in the box — nothing is sent twice.</span>
+    </div>
+
+    <div class="strip">
+      <span>conv <b id="s-chat">—</b></span>
+      <span>caller <b id="s-caller">—</b></span>
+      <span>pool <b id="s-pool">—</b></span>
+      <span>known <b id="s-known">—</b></span>
+      <span>last error <b id="s-err">none</b></span>
+    </div>
+    <p class="note" id="said">The transcript lives in this tab's memory only — nothing is stored and a reload loses it. What the hub keeps is the turns it relayed, for the caller that minted the id and nobody else.</p>
+  </div>
+
+  <div class="card">
+    <h2>What this page does, and what it does not</h2>
+    <ul class="priv">
+      <li class="has">Sends each turn to <span class="mono">POST /v1/chat/completions</span> on this origin and shows the reply, the conversation id and the hub's own headers.</li>
+      <li class="has">Sends the full history it is showing, so the hub never has to guess what was said. It detects the replay by the opening message, so nothing is duplicated.</li>
+      <li class="no">Stores nothing: no message text in local storage, no cookie of its own. Reload and the transcript is gone; the hub's copy of the conversation survives.</li>
+      <li class="no">Streams nothing and sends no tools or images — <span class="mono">stream:false</span>, plain text in, plain text out.</li>
+      <li class="no">Proves nothing about a model's features. A suffix such as <span class="mono">-think</span> is a feature the catalog declares; whether the far end honours it is not exercised here.</li>
+    </ul>
+    <p class="note">The hub keeps at most 6000 characters of a conversation and drops the oldest turns first. A restart forgets every id, and the oldest is evicted once 200 exist — then an old id answers 404 and this page offers a fresh start instead of quietly dropping it.</p>
+  </div>
+</div>
+
+<script src="chat.js"></script>
+<script>CHAT.mount();</script>
+</body>
+</html>

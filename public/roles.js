@@ -1,3 +1,4 @@
+// @ts-check
 /* roles.js — the login memory and the three role pages.
  *
  * Everything here runs in the browser only. There is no server: no session is
@@ -12,12 +13,23 @@
  * It answers only localhost/static: a hub is not present, and the pages say so.
  */
 const ROLES = (() => {
+
+  /** window plus the switches a deployment can set before this script loads. */
+  /** @typedef {Window & typeof globalThis & {
+   *   GLM_HUB_URL?: string,
+   *   GLM_IP_LOOKUP_URL?: string,
+   *   webkitAudioContext?: typeof AudioContext
+   * }} RolesWindow */
+
+  var win = /** @type {RolesWindow} */ (/** @type {unknown} */ (window));
+
   const KEY = 'glm2api.role';
-  const HUB = window.GLM_HUB_URL ? String(window.GLM_HUB_URL).replace(/\/$/, '') : '';
+  const HUB = win.GLM_HUB_URL ? String(win.GLM_HUB_URL).replace(/\/$/, '') : '';
 
   /* The page each role owns. A visitor who signs in on the front door is taken
    * here, so the sign-in page is a door and not a waiting room. Kept in step
    * with ROLE_HOME in server/hub.mjs, which does the same after "/". */
+  /** @type {Record<string, string>} */
   const HOME = {
     user: '/user.html',
     partner: '/partner.html',
@@ -28,7 +40,12 @@ const ROLES = (() => {
   /* Is a hub on this origin? Asked once, cached, so pages can say which mode
    * they are in rather than guessing. A static host answers /status with HTML,
    * so the content-type is the tell (same check admin.js makes). */
+  /** What /session answered the first time it was asked, so it is asked once. */
+  /** @typedef {{ present: boolean, role: string | null }} HubProbe */
+
+  /** @type {Promise<HubProbe> | null} */
   let hubProbe = null;
+  /** @returns {Promise<HubProbe>} */
   function hub() {
     if (hubProbe) return hubProbe;
     hubProbe = fetch((HUB || '') + '/session', { headers: { accept: 'application/json' } })
@@ -47,6 +64,7 @@ const ROLES = (() => {
   function role() {
     try { return localStorage.getItem(KEY) || ''; } catch { return ''; }
   }
+  /** @param {string} r */
   function remember(r) {
     try { localStorage.setItem(KEY, r); } catch { /* private mode: fine */ }
   }
@@ -54,11 +72,11 @@ const ROLES = (() => {
   // Silent 30 Hz oscillator. Identical approach to the minter page: a running
   // AudioContext makes the browser treat the tab as playing audio, which makes
   // it far less likely to freeze or throttle it. It is inaudible.
-  let ac = null, osc = null, armed = false;
+  let ac = /** @type {AudioContext | null} */ (null), osc = null, armed = false;
   function arm() {
     if (armed) { paintArm(); return; }
     try {
-      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      ac = ac || new (win.AudioContext || win.webkitAudioContext)();
       if (ac.state === 'suspended') ac.resume();
       osc = ac.createOscillator();
       const g = ac.createGain();
@@ -96,7 +114,7 @@ const ROLES = (() => {
   const IP_DEFAULT = 'https://api.ipify.org?format=json';
 
   async function ipLookupUrl() {
-    if (window.GLM_IP_LOOKUP_URL) return window.GLM_IP_LOOKUP_URL;
+    if (win.GLM_IP_LOOKUP_URL) return win.GLM_IP_LOOKUP_URL;
     try {
       const r = await fetch('/config', { cache: 'no-store' });
       if (r.ok) {
@@ -137,7 +155,9 @@ const ROLES = (() => {
   }
 
   // A tiny log, same shape as the minter page's.
+  /** @type {string[]} */
   const LINES = [];
+  /** @param {string} text */
   function log(text) {
     LINES.unshift(new Date().toLocaleTimeString() + ' — ' + text);
     if (LINES.length > 40) LINES.pop();
@@ -157,24 +177,10 @@ const ROLES = (() => {
     box.className = 'warnbox';
     box.textContent = 'That page belongs to a different role, so it sent you to your own. '
       + 'You are signed in as ' + q + '; use the bar above to move around.';
-    el.parentNode.insertBefore(box, el);
+    /** @type {HTMLElement} */ (el.parentNode).insertBefore(box, el);
   }
 
-  // Flip switches and remember them. Purely cosmetic: nothing reads them yet.
-  function switches(scope) {
-    document.querySelectorAll('[data-sw]').forEach((s) => {
-      const key = scope + '.' + s.dataset.sw;
-      let on = false;
-      try { on = localStorage.getItem(key) === '1'; } catch {}
-      s.setAttribute('aria-checked', on ? 'true' : 'false');
-      s.addEventListener('click', () => {
-        const next = s.getAttribute('aria-checked') !== 'true';
-        s.setAttribute('aria-checked', next ? 'true' : 'false');
-        try { localStorage.setItem(key, next ? '1' : '0'); } catch {}
-        log((s.dataset.name || s.dataset.sw) + (next ? ' on' : ' off') + ' (this browser only)');
-      });
-    });
-  }
+  
 
   function pill() {
     const r = role();
@@ -185,14 +191,31 @@ const ROLES = (() => {
     el.textContent = r;
   }
 
-  function noHub() {
-    // Stated once per page so nobody reads these numbers as live pool data.
-    log('No hub server is running here — nothing on this page is sent anywhere.');
+  /** @param {string} sends */
+  function noHub(sends) {
+    // This used to be a fixed claim, which became a lie the moment the partner
+    // form learned to POST. Probe instead, and say which of the two situations
+    // this actually is. A static host answers the path with HTML, not the hub's
+    // JSON, so a failed parse is still "no hub".
+    fetch('/status/self', { credentials: 'same-origin' })
+      .then((r) => r.text().then((t) => {
+        let body = null;
+        try { body = JSON.parse(t); } catch { /* a static host answers HTML, not the hub */ }
+        // 200 (signed in) and 401 (hub, no session) are the two the hub gives;
+        // anything else is a static host's 404 for a path it does not have.
+        const hub = body && typeof body === 'object' && (r.status === 200 || r.status === 401);
+        if (!hub) { log('No hub on this origin - nothing on this page is sent anywhere.'); return; }
+        log(r.status === 200
+          ? 'Hub answers on this origin. ' + sends
+          : 'Hub answers on this origin, but this tab has no session - sign in before anything can count.');
+      }))
+      .catch(() => log('No hub on this origin - nothing on this page is sent anywhere.'));
   }
 
   /* ── login ─────────────────────────────────────────────────── */
   /* Where a gated page wanted to go. A deliberate redirect target from the hub,
    * so it is checked to be a same-origin path: anything absolute is ignored. */
+  /** @param {string} fallback @returns {string} */
   function loginNext(fallback) {
     try {
       var q = new URLSearchParams(location.search).get('next');
@@ -204,17 +227,16 @@ const ROLES = (() => {
 
   function mountLogin() {
     var form = document.getElementById('keyform');
-    var input = document.getElementById('keyinput');
+    var input = /** @type {HTMLInputElement} */ (document.getElementById('keyinput'));
     var submit = document.getElementById('keygo');
 
-    // Where to go once a session exists: the page the visitor asked for.
-    // Kept in the query string so a redirect survives a reload.
-
-
-    document.querySelectorAll('#roles .role').forEach((a) => {
-      const r = a.dataset.role;
+    document.querySelectorAll('#roles .role').forEach((/** @type {any} */ a) => {
+      const r = /** @type {string} */ (a.dataset.role);
       if (role() === r) a.setAttribute('aria-pressed', 'true');
-      a.addEventListener('click', (ev) => {
+      a.addEventListener('click', (/** @type {MouseEvent} */ ev) => {
+        // The card is an <a>: without this, the browser follows it and the key
+        // box below never gets a chance to appear. The script owns the move.
+        ev.preventDefault();
         remember(r);
         // Privileged roles need a key before the hub will grant the session.
         hub().then((h) => {
@@ -235,7 +257,8 @@ const ROLES = (() => {
             input.focus();
             setSignNote('Signing in as ' + r + ' needs that role\'s key, which the hub printed '
               + 'when it started (or set it with GLM_KEYS / GLM_SUPERADMIN). This is a key, not a '
-              + 'password: there are no accounts.', 'mut');
+              + 'password: there are no accounts. If it is a named person\'s key, add their name '
+              + 'below and the session will carry it.', 'mut');
           }
         });
       });
@@ -263,13 +286,15 @@ const ROLES = (() => {
     });
   }
 
+  /** @param {string} r @param {string | null} key */
   function signIn(r, key) {
     setSignNote('Asking the hub for a ' + r + ' session…', 'mut');
+    /** @type {{ role: string, key?: string, name?: string }} */
     var body = { role: r };
     if (key) body.key = key;
     // A person can sign under their own name if the form carries one; the
     // hub only accepts it when that person's own key was given too.
-    var nameBox = document.getElementById('personname');
+    var nameBox = /** @type {HTMLInputElement | null} */ (document.getElementById('personname'));
     if (nameBox && nameBox.value.trim()) body.name = nameBox.value.trim();
     return fetch((HUB || '') + '/session', {
       method: 'POST',
@@ -292,6 +317,7 @@ const ROLES = (() => {
       .catch((e) => setSignNote('Hub refused the session: ' + e.message, 'bad'));
   }
 
+  /** @param {string} text @param {string} kind */
   function setSignNote(text, kind) {
     const el = document.getElementById('signnote');
     if (!el) return;
@@ -302,27 +328,19 @@ const ROLES = (() => {
       : kind === 'ok' ? 'var(--ok)' : 'var(--mut)';
   }
 
-  /* ── user ──────────────────────────────────────────────────── */
-  function mountUser() {
-    pill(); armOnGesture(); ip(); startUptime(); switches('user');
-    wrongRoleNote();
-    log('Signed in as user (open role: no key, since lending your own IP risks nothing).');
-    noHub();
-    log('You can offer this IP as an egress point once a hub is listening.');
-  }
-
   /* ── partner ───────────────────────────────────────────────── */
   function mountPartner() {
-    pill(); armOnGesture(); ip(); startUptime(); switches('partner');
+    pill(); armOnGesture(); ip(); startUptime();
     wrongRoleNote();
     log('Signed in as partner (this browser only — not verified anywhere).');
-    noHub();
+    noHub('The donation form below really POSTs to /tokens, and the counts above come from it.');
 
     // The token/session form. With a hub listening and a partner/admin session
     // cookie, submitting POSTs the value to /tokens, which stores only a
     // fingerprint. Without a hub, nothing is sent and the page says so.
     const form = document.getElementById('addform');
     const status = document.getElementById('donate-status');
+    /** @param {string} text @param {string} kind */
     function say(text, kind) {
       if (!status) return;
       status.textContent = text;
@@ -332,8 +350,8 @@ const ROLES = (() => {
     if (form) {
       form.addEventListener('submit', (e) => {
         e.preventDefault();
-        const kind = document.getElementById('kind').value;
-        const box = document.getElementById('secret');
+        const kind = /** @type {HTMLSelectElement} */ (document.getElementById('kind')).value;
+        const box = /** @type {HTMLInputElement} */ (document.getElementById('secret'));
         if (!box.value.trim()) { say('Nothing to add — paste a ' + kind + ' first.', 'bad'); return; }
         // Never echo the value itself into the log or anywhere else.
         fetch('/tokens', {
@@ -402,7 +420,7 @@ const ROLES = (() => {
           const box = document.getElementById('c-mine');
           if (!box) return;
           if (d && d.ok && d.mine.length) {
-            box.textContent = d.mine.map((m) =>
+            box.textContent = d.mine.map((/** @type {any} */ m) =>
               m.kind + ' ' + m.fp.slice(0, 8) + '…: ' + m.status).join(' · ');
           } else {
             box.textContent = d && d.ok ? 'nothing of yours held yet' : '';
@@ -415,5 +433,5 @@ const ROLES = (() => {
     log('Allowance rises with verified tokens and sessions — and each donation is now checked against Aliyun as it arrives, so "verified" means a real exchange answered.');
   }
 
-  return { role, mountLogin, mountUser, mountPartner, arm, log };
+  return { role, mountLogin, mountPartner, arm, log };
 })();

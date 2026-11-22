@@ -1,3 +1,4 @@
+// @ts-check
 /* glm-client.js — clean-room rebuild of the minter page's captcha client.
  *
  * What the original does (observed in capture/how-it-works.md):
@@ -23,6 +24,38 @@
 (function () {
   'use strict';
 
+  /** The scene block the widget needs: hub /config's captcha, or window.GLM_MINT_SCENE. */
+  /** @typedef {{ scene: string, prefix: string, region?: string, lang?: string, sdkUrl?: string, from?: string }} Scene */
+
+  /** The options object this file hands the Aliyun SDK: exactly the fields it sets. */
+  /** @typedef {{
+   *   SceneId: string, prefix: string, mode: string, element: string, button: string,
+   *   region: string, language: string,
+   *   captchaVerifyCallback: (param: any) => void,
+   *   onBizResultCallback: () => void,
+   *   getInstance: (i: any) => void,
+   *   slideStyle: { width: number, height: number }
+   * }} AliyunOptions */
+
+  /** The surface this file puts on window; the minter page calls mintCaptchaSerialized. */
+  /** @typedef {{
+   *   version: string,
+   *   uuid: () => string,
+   *   mintCaptcha: (scene: Scene) => Promise<any>,
+   *   mintCaptchaSerialized: () => Promise<string>,
+   *   GLMError: (message: string, code?: number) => Error & { code?: number }
+   * }} GlmClient */
+
+  /** window plus what this page reads off it and puts on it. */
+  /** @typedef {Window & {
+   *   GLM_HUB_URL?: string,
+   *   GLM_MINT_SCENE?: { scene: string, prefix: string, region?: string, lang?: string, sdkUrl?: string },
+   *   initAliyunCaptcha?: (opts: AliyunOptions) => void,
+   *   GLM?: GlmClient
+   * }} ClientWindow */
+
+  var win = /** @type {ClientWindow} */ (/** @type {unknown} */ (window));
+
   var SDK_URL = 'https://o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js';
   var OFFSCREEN_STYLE = 'position:absolute;left:-99999px;top:-99999px;width:0;height:0;overflow:hidden;pointer-events:none';
   var MINT_TIMEOUT_MS = 45000;
@@ -34,17 +67,18 @@
    *   3. nothing — the page keeps working in demo mode rather than pretending.
    * So a static deploy with no hub behaves exactly as before (demo), and a hub
    * deploy runs the real widget with whatever the operator configured. */
-  var configPromise = null;
+  /** @type {Promise<Scene | null> | null} */ var configPromise = null;
 
+  /** @returns {Promise<Scene | null>} */
   function loadConfig() {
     if (configPromise) return configPromise;
-    if (window.GLM_MINT_SCENE && window.GLM_MINT_SCENE.scene) {
+    if (win.GLM_MINT_SCENE && win.GLM_MINT_SCENE.scene) {
       var pinned = {
-        scene: window.GLM_MINT_SCENE.scene,
-        prefix: window.GLM_MINT_SCENE.prefix,
-        region: window.GLM_MINT_SCENE.region || 'sgp',
-        lang: window.GLM_MINT_SCENE.lang || 'en',
-        sdkUrl: window.GLM_MINT_SCENE.sdkUrl || SDK_URL,
+        scene: win.GLM_MINT_SCENE.scene,
+        prefix: win.GLM_MINT_SCENE.prefix,
+        region: win.GLM_MINT_SCENE.region || 'sgp',
+        lang: win.GLM_MINT_SCENE.lang || 'en',
+        sdkUrl: win.GLM_MINT_SCENE.sdkUrl || SDK_URL,
         from: 'window.GLM_MINT_SCENE',
       };
       if (pinned.scene && pinned.prefix) { configPromise = Promise.resolve(pinned); return configPromise; }
@@ -74,18 +108,20 @@
   // The origin this script came from, so /config is asked of the page's hub
   // and never of some other host.
   function HUB_BASE() {
-    if (window.GLM_HUB_URL) return String(window.GLM_HUB_URL).replace(/\/$/, '');
+    if (win.GLM_HUB_URL) return String(win.GLM_HUB_URL).replace(/\/$/, '');
     return '';
   }
 
 
+  /** @param {string} message @param {number} [code] @returns {Error & { code?: number }} */
   function GLMError(message, code) {
-    var e = new Error(message);
+    var e = /** @type {Error & { code?: number }} */ (new Error(message));
     e.name = 'GLMError';
     e.code = code || 502;
     return e;
   }
 
+  /** @returns {string} */
   function uuid() {
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -94,12 +130,15 @@
     });
   }
 
+  /** @param {number} minSec @param {number} maxSec @returns {number} */
   function jitter(minSec, maxSec) {
     return Math.round((minSec + Math.random() * (maxSec - minSec)) * 1000);
   }
 
   /* ---- hidden-element plumbing (mirrors the observed DOM behaviour) ---- */
 
+  /** The SDK parks its widget instance on this object, which is all `instance` is. */
+  /** @returns {{ el: HTMLElement, btn: HTMLElement, instance?: any }} */
   function ensureEls() {
     var el = document.getElementById('glm-captcha-el');
     if (!el) {
@@ -119,13 +158,14 @@
     return { el: el, btn: btn };
   }
 
+  /** @param {string} [url] @returns {Promise<void>} */
   function loadSdk(url) {
     return new Promise(function (resolve, reject) {
-      if (window.initAliyunCaptcha) return resolve();
+      if (win.initAliyunCaptcha) return resolve();
       var s = document.createElement('script');
       s.src = url || SDK_URL;
       s.onload = function () {
-        if (window.initAliyunCaptcha) resolve();
+        if (win.initAliyunCaptcha) resolve();
         else reject(GLMError('initAliyunCaptcha missing after SDK load'));
       };
       s.onerror = function () { reject(GLMError('Aliyun SDK load failed')); };
@@ -135,6 +175,7 @@
 
   /* ---- REAL mode: run the widget hidden and resolve the param ---- */
 
+  /** @param {Scene} scene @returns {Promise<any>} */
   function mintCaptcha(scene) {
     return new Promise(function (resolve, reject) {
       var els = ensureEls();
@@ -145,7 +186,7 @@
 
       loadSdk(scene.sdkUrl).then(function () {
         try {
-          window.initAliyunCaptcha({
+          /** @type {(opts: AliyunOptions) => void} */ (win.initAliyunCaptcha)({
             SceneId: scene.scene,
             prefix: scene.prefix,
             mode: 'popup',
@@ -162,10 +203,9 @@
             onBizResultCallback: function () {},
             getInstance: function (i) { els.instance = i; },
             slideStyle: { width: 320, height: 40 },
-            language: scene.lang || 'en',
           });
         } catch (e) {
-          if (!done) { done = true; clearTimeout(timer); reject(GLMError('captcha fail: ' + (e && e.message ? e.message : e))); }
+          if (!done) { done = true; clearTimeout(timer); reject(GLMError('captcha fail: ' + (e instanceof Error ? e.message : String(e)))); }
         }
       }).catch(function (e) {
         if (!done) { done = true; clearTimeout(timer); reject(e); }
@@ -175,6 +215,7 @@
 
   /* ---- DEMO mode: a simulated mint cycle (no upstream calls) ---- */
 
+  /** @returns {Promise<any>} */
   function mintCaptchaSimulated() {
     ensureEls(); // keep the same hidden DOM in place
     return new Promise(function (resolve) {
@@ -189,6 +230,7 @@
 
   /* ---- public surface (what the minter page calls) ---- */
 
+  /** @returns {Promise<string>} */
   function mintCaptchaSerialized() {
     return loadConfig().then(function (scene) {
       if (scene && scene.scene && scene.prefix) {
@@ -202,7 +244,7 @@
     });
   }
 
-  window.GLM = {
+  win.GLM = {
     version: '0.1.0-cleanroom',
     uuid: uuid,
     mintCaptcha: mintCaptcha,

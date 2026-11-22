@@ -135,6 +135,7 @@
       <div class="kv"><span class="k">Pool entries spent</span><span class="v" id="u-spent">-</span></div>
       <div class="kv"><span class="k">Refused (429)</span><span class="v" id="u-throttled">-</span></div>
       <div class="kv"><span class="k">In flight / limit</span><span class="v mono" id="u-inflight">-</span></div>
+      <div class="kv"><span class="k">Last chat</span><span class="v mono" id="u-chat">-</span></div>
       <div class="note" id="u-note">Without <b>GLM_UPSTREAM</b> set, chat answers 501 rather than guessing
       where to send it. With it set, the hub forwards there (the model id still picks the path, so
       <span class="mono">cn/…</span> keeps its own endpoint), signs each request, and attaches one minted
@@ -142,7 +143,12 @@
       burning it; an <span class="mono">x-glm-pool: empty</span> response means the request went out with
       no param. One caller may hold <b>4</b> requests at once (<b>GLM_CHAT_CONCURRENCY</b>); the next one
       gets <b>429</b> with a <span class="mono">retry-after</span>, then waits
-      <b>GLM_CHAT_COOLDOWN_MS</b> (5s) before trying again.</div>
+      <b>GLM_CHAT_COOLDOWN_MS</b> (5s) before trying again. Every chat is minted its own
+      <span class="mono">chat_id</span> and answered with <b>x-glm-chat</b>, <b>x-glm-caller</b> and
+      <b>x-glm-caller-kind</b>. Hand the <b>chat_id</b> back to continue that conversation — the hub
+      replays the turns it relayed, so the next request can be one new message — but only the caller
+      that minted it may continue it (anyone else gets the same <b>404</b> as an id that never
+      existed). The tag — never the name — is what travels upstream.</div>
     </div>
 
     <!-- ── People: per-person identity ── -->

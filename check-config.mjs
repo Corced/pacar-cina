@@ -279,6 +279,23 @@ try {
     check('the partner bar offers no admin panel', !/href="\/admin\.html"/.test(ph));
     check('the partner bar offers no reference page', !/href="\/repos\.html"/.test(ph));
 
+    // The chat page is the one page every signed-in role shares, and the only
+    // one a person can use without curl. It has to be reachable, gated, and in
+    // the bar — a page nobody can find is the same as a page that is missing.
+    const chatPage = await getJson(base, '/chat.html', partner.cookie, 'manual');
+    const ch = chatPage.raw || '';
+    check('the chat page is reachable and carries the bar',
+      chatPage.status === 200 && /class="nav"/.test(ch), 'HTTP ' + chatPage.status);
+    check('the chat page connects its own script and the controls the script reads',
+      /src="chat\.js"/.test(ch) && /id="send"/.test(ch) && /id="chat"/.test(ch)
+      && /id="msg"/.test(ch) && /id="model"/.test(ch));
+    check('every signed-in bar links the chat page',
+      /href="\/chat\.html"/.test(ph) && /href="\/chat\.html"/.test(ah));
+    const anonChat = await getJson(base, '/chat.html', null, 'manual');
+    check('the chat page is gated like every other page',
+      anonChat.status === 302 && /next=%2Fchat\.html/.test(anonChat.location),
+      'HTTP ' + anonChat.status + ' ' + anonChat.location);
+
     // No marker may survive: a page served with "<!--nav-->" in it means the
     // hub failed to fill the bar in, and the reader would see raw HTML.
     check('the navigation marker was replaced, not left in the page',
