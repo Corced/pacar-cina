@@ -1,5 +1,5 @@
 // @ts-check
-/* roles.js — the login memory and the three role pages.
+/* roles.js - the login key field and the role pages.
  *
  * Everything here runs in the browser only. There is no server: no session is
  * issued, no role is verified, nothing is stored anywhere but this browser.

@@ -30,7 +30,7 @@ different states:
 
 | What is donated                                                                                            | State                                                                                                                                                                                                                                                                           | Proven by                                                                |
 | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| **A browser's mint work** - a partner keeps a tab open; the hub sends it captcha jobs; the browser answers | **Finished and proven.** Key-gated socket, real job round trip, even spread across partners, pool stops exactly at its target, entries expire and the pool refills itself; a graceful close takes the partner offline and frees a job it was holding instead of leaving it busy | `check-hub.mjs` (71 expectations) + `check-hub-multi.mjs` (9), all green |
+| **A browser's mint work** - a partner keeps a tab open; the hub sends it captcha jobs; the browser answers | **Finished and proven.** Key-gated socket, real job round trip, even spread across partners, pool stops exactly at its target, entries expire and the pool refills itself; a graceful close takes the partner offline and frees a job it was holding instead of leaving it busy | `check-hub.mjs` (73 assertions) + `check-hub-multi.mjs` (9), all green |
 | **Tokens / sessions pasted into `partner.html`**                                                           | **Accepted and verified on arrival.** The form POSTs to `POST /tokens`; the hub keeps only a SHA-256 fingerprint, checks the value with Aliyun straight away, and records valid / invalid / unverified — never the value                                                        | `check-hub.mjs` (donation expectations)                                  |
 | **An IP as an egress point** (`user.html`)                                                                 | **Reported, not routed.** The page shows what the hub can prove about this address (is a minter socket from it open, how many captchas that address returned) and nothing it cannot; no traffic is routed through it                                                                 | `check-hub.mjs` (`/status/self` expectations)                            |
 
@@ -45,8 +45,7 @@ rather than faked.
 ## Quick start
 
 ```bash
-npm install          # nothing to install — zero dependencies (a lockfile only)
-npm run build        # copies public/ into dist/
+npm run build        # optional: copies public/ into dist/ for a static copy
 npm run hub          # starts the backend on http://127.0.0.1:5082
 ```
 
@@ -278,6 +277,8 @@ state file belongs outside the repo for the same reason.
 
 ### Deploying it
 
+**Getting free-tier credentials?** See [`DEPLOYMENT_QUICKSTART.md`](./DEPLOYMENT_QUICKSTART.md) for step-by-step runbooks, with current source facts in [`docs/FREE_TIER_RESEARCH.md`](./docs/FREE_TIER_RESEARCH.md).
+
 **One always-on process, one replica, one volume.** The partner sockets, sessions,
 minted pool, chat ledger and contributed upstream tokens all live in that
 process's memory, so a second replica behind a load balancer would split them
@@ -422,10 +423,10 @@ npm run check        # the chain: html, links, types, the five hub suites, docs,
 node check-html.mjs          # every built page's tags balanced and properly nested, every id a script reads defined
 node check-links.mjs         # every local href/src resolves inside dist/
 node check-types.mjs         # the scripts that opt in with // @ts-check type-check clean (skips when no tsc is installed)
-node check-hub.mjs           # 71 expectations: auth gates, session, socket, /status, /status/self, models, upstream, donations, the donation cap
+node check-hub.mjs           # 73 assertions: auth gates (a key names its role), session, socket, /status, /status/self, models, upstream, donations, the donation cap
 node check-hub-multi.mjs     # 9 expectations: 3 partners, even spread, pool stops at target
-node check-config.mjs        # 101 expectations: dynamic config, the page gate, the chat page, per-role pages, the pool life cycle, session expiry
-node check-chat.mjs          # 62 expectations: forwarding, request signing, pool spend and refund, feature defaults, the per-caller 429
+node check-config.mjs        # 113 assertions: dynamic config, the page gate, the chat page, per-role pages, the pool life cycle, session expiry
+node check-chat.mjs          # 98 assertions: forwarding, request signing, pool spend and refund, feature defaults, the per-address and per-caller 429
 node check-people.mjs        # 57 expectations: create, revoke, rotate, the state file, hashing at rest, the seeded superadmin across a restart
 node check-docs.mjs          # the hand-off note still matches the code: every setting and path it names exists
 node doctor.mjs              # what is still open and the exact command that closes it (add --self-test to prove the report)
@@ -491,8 +492,8 @@ app/
 
 ## How the behaviour maps to the original
 
-Everything below was observed in the recorded capture of the original page
-(`capture/how-it-works.md`, `capture/page.html`):
+Everything below was observed in the recording of the original page. The capture
+files are no longer shipped in this repository.
 
 1. **Background mode** — a silent oscillator (30 Hz, gain 0.01) starts on the
    first tap/keypress so the tab isn't throttled; a red warning shows until

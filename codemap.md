@@ -55,7 +55,7 @@ jobs, donations and the chat ledger never do). `HANDOFF.md` is the authoritative
 | `.repos/` | downloaded reference-project archives (research material, never published) |
 | `check-*.mjs` | the suites `npm run check` runs |
 | `doctor.mjs` | reads the gap list from `HANDOFF.md` and prints what closes each one; `live` makes one real upstream call and reports `PROVEN` or the exact refusal |
-| `check-chat.mjs` | chat forwarding against a local upstream stub: signing, pool spend, refund, the per-caller 429 |
+| `check-chat.mjs` | chat forwarding against a local upstream stub: signing, pool spend, refund, the per-address and per-caller 429 |
 | `check-people.mjs` | the people directory: create, revoke (key + sessions + sockets), rotate, the state file, hashing at rest, the seeded superadmin across a restart |
 | `fetch-repos.mjs` | downloads the three reference projects into `.repos/` |
 | `.slim/codemap.json` | codemap change-detection state |

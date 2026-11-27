@@ -47,7 +47,7 @@ Two consequences worth stating plainly, because they shape the design:
 | **minter**   | the browser page (`index.html`) that answers mint jobs.             |
 | **mint**     | asking Aliyun's widget for one captcha verification parameter.      |
 | **donation** | a value a partner sends the hub: a captcha param or a device token. |
-| **pool**     | the hub's in-memory store of donated values.                        |
+| **pool**     | the hub's store of minted params, in memory unless `GLM_STATE_FILE` is set. |
 | **partner**  | a person who signs in and donates from their browser.               |
 | **role**     | user / partner / admin / superadmin — what you are allowed to do.   |
 
@@ -90,7 +90,7 @@ library was not needed either.
  │ index.html       │◄─────────────►│                │──────────►│ Aliyun       │
  │  + minter.js     │  job / captcha│  server/       │  verify   │ captcha API  │
  │  + glm-client.js │               │  hub.mjs       │           └──────────────┘
- │                  │   HTTPh       │  ws.mjs        │──────────►┌──────────────┐
+ │                  │   HTTP        │  ws.mjs        │──────────►┌──────────────┐
  │ admin.html       │◄─────────────►│                │  forward  │ chat.z.ai /  │
  │ partner.html     │   /status     │  (no deps)     │           │ chatglm.cn   │
  │ user.html        │   /config     └────────────────┘           └──────────────┘
@@ -102,8 +102,9 @@ library was not needed either.
 
 Two facts fall out of that picture and matter later:
 
-- **All state is in memory.** Restart the hub and the pool empties, sessions die,
-  and any auto-generated key changes. [See traps.](#before-you-change-anything)
+- **Most state is in memory.** Restart the hub and sessions, jobs, chat rows,
+  donations and generated keys are gone. People and unexpired minted params
+  survive when `GLM_STATE_FILE` is set. See [traps](#before-you-change-anything).
 - **The captcha widget only runs in a browser.** The hub can _check_ a minted
   parameter against Aliyun, but it cannot mint one. That is why the minter page
   exists at all, and why the hub alone is not a token source.
@@ -113,7 +114,7 @@ Two facts fall out of that picture and matter later:
 ```
 partner.ts                         hub                            aliyun
    │                                │                                │
-   │── WS hello {ip, v:2} ─────────►│  registers as an egress point  │
+   │── WS hello {type:'hello', ip, proto:2} ─►│  registers as an egress point  │
    │                                │                                │
    │◄──────────── job {id, mint:1} ─│  pool below TOKEN_LOWWATER     │
    │                                │                                │
@@ -383,6 +384,8 @@ Ordered by how much they block real use. Each one has a runbook: the commands,
 what a pass looks like, and where to record it. Every step is something one
 person with a browser and a terminal can do in an afternoon — none of them
 needs a change to the design.
+
+**Free-tier credential sources for all five gaps:** See [`DEPLOYMENT_QUICKSTART.md`](DEPLOYMENT_QUICKSTART.md) for free-tier credential flows for chat.z.ai, chatglm.cn, Aliyun Captcha, and Tor/SOCKS5 routing. It maps each gap to the sources that close it, the signup paths, and gotchas. Start there if you are deploying for the first time.
 
 **Start with `node doctor.mjs`.** It reads this list, says what each gap needs,
 reports what this machine already has (an upstream, a key, a state file), and

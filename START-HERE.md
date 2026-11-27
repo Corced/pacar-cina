@@ -4,6 +4,10 @@ A working copy of one small protocol: the captcha-minter page the upstream chat
 sites use, plus the relay that turns a minted captcha parameter into an
 OpenAI-shaped `/v1/chat/completions` call.
 
+New to the documentation? Read this page for the shape, `HANDOFF.md` for proof
+and open gaps, `README.md` for every route and setting, and
+`DEPLOYMENT_QUICKSTART.md` for credentials and free-tier sources.
+
 It is a clean-room rebuild (no code from the reference projects) and it is
 deliberately dependency-free: no `npm install`, no bundler, no build step between
 the file you read and the file the browser runs. Plain HTML, CSS and ES5-ish

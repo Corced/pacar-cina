@@ -1,6 +1,7 @@
 ## Repository Map
 
-A full codemap is available at `codemap.md` in the project root.
+A full codemap is available at `codemap.md` in the project root. For status,
+read `HANDOFF.md`; for operator commands, read `INSTRUCTION.md`.
 
 Before working on any task, read `codemap.md` to understand:
 - Project architecture and entry points
