@@ -277,7 +277,7 @@ state file belongs outside the repo for the same reason.
 
 ### Deploying it
 
-**Getting free-tier credentials?** See [`DEPLOYMENT_QUICKSTART.md`](./DEPLOYMENT_QUICKSTART.md) for step-by-step runbooks, with current source facts in [`docs/FREE_TIER_RESEARCH.md`](./docs/FREE_TIER_RESEARCH.md).
+**Hosting the hub and browser pages?** See [`DEPLOYMENT.md`](./DEPLOYMENT.md) for an end-to-end guide: one process, Docker or systemd, TLS, persistent state, host checks and free-tier hosting limits. **Getting free-tier credentials?** See [`DEPLOYMENT_QUICKSTART.md`](./DEPLOYMENT_QUICKSTART.md) for step-by-step runbooks, with current source facts in [`docs/FREE_TIER_RESEARCH.md`](./docs/FREE_TIER_RESEARCH.md).
 
 **One always-on process, one replica, one volume.** The partner sockets, sessions,
 minted pool, chat ledger and contributed upstream tokens all live in that

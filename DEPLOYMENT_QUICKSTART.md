@@ -115,6 +115,6 @@ Pin role keys, `SESSION_SECRET`, `GLM_PUBLIC_URL` and `GLM_TRUST_PROXY` for a lo
 
 ## After the gaps close
 
-The five gaps cover credentials and observation. They do not turn the hub into a hosted service. You still choose one always-on process, one volume and a TLS terminator; see `README.md` "Deploying it" for the reasons and `INSTRUCTION.md` for the operator checklist.
+The five gaps cover credentials and observation. They do not turn the hub into a hosted service. You still choose one always-on process, one volume and a TLS terminator; see [`DEPLOYMENT.md`](DEPLOYMENT.md) for host-by-host steps and `README.md` "Deploying it" for the reasons. `INSTRUCTION.md` has the operator checklist.
 
 Research source: `docs/FREE_TIER_RESEARCH.md`. Verification: `node doctor.mjs` and `node doctor.mjs live`. For the system itself, read `START-HERE.md`, `HANDOFF.md` and `README.md`.

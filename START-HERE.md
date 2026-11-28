@@ -5,8 +5,9 @@ sites use, plus the relay that turns a minted captcha parameter into an
 OpenAI-shaped `/v1/chat/completions` call.
 
 New to the documentation? Read this page for the shape, `HANDOFF.md` for proof
-and open gaps, `README.md` for every route and setting, and
-`DEPLOYMENT_QUICKSTART.md` for credentials and free-tier sources.
+and open gaps, `README.md` for every route and setting, and `DEPLOYMENT.md` for
+hosting the frontend and backend. Credential sources are in
+`DEPLOYMENT_QUICKSTART.md`.
 
 It is a clean-room rebuild (no code from the reference projects) and it is
 deliberately dependency-free: no `npm install`, no bundler, no build step between
@@ -142,11 +143,12 @@ node doctor.mjs                        # what each open gap needs, and what this
 ```
 
 Pin `GLM_KEYS=partner:…,admin:…` or the hub generates fresh keys every start and
-prints them once. Deploying is one always-on process with a volume — no `npm run
+prints them once. Deploying is one always-on process with a volume, no `npm run
 build` (the hub serves `public/` directly), one replica, `NODE_ENV=production`
 (or `HOST=0.0.0.0`), `GLM_STATE_FILE` on the volume, and `GLM_TRUST_PROXY=1` +
-`GLM_PUBLIC_URL=https://…` behind the platform's TLS. A `Dockerfile` is in the
-repo. See README "Deploying it" for the env block and the reasons.
+`GLM_PUBLIC_URL=https://…` behind the platform's TLS. See [`DEPLOYMENT.md`](DEPLOYMENT.md)
+for a host-by-host walkthrough and [`README.md`](README.md) "Deploying it" for
+the reasons.
 
 ## Where the truth lives
 

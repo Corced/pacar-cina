@@ -385,7 +385,7 @@ what a pass looks like, and where to record it. Every step is something one
 person with a browser and a terminal can do in an afternoon — none of them
 needs a change to the design.
 
-**Free-tier credential sources for all five gaps:** See [`DEPLOYMENT_QUICKSTART.md`](DEPLOYMENT_QUICKSTART.md) for free-tier credential flows for chat.z.ai, chatglm.cn, Aliyun Captcha, and Tor/SOCKS5 routing. It maps each gap to the sources that close it, the signup paths, and gotchas. Start there if you are deploying for the first time.
+**Free-tier credential sources for all five gaps:** See [`DEPLOYMENT_QUICKSTART.md`](DEPLOYMENT_QUICKSTART.md) for free-tier credential flows for chat.z.ai, chatglm.cn, Aliyun Captcha, and Tor/SOCKS5 routing. It maps each gap to the sources that close it, the signup paths, and gotchas. Start there if you are deploying for the first time. For the actual host setup, see [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 **Start with `node doctor.mjs`.** It reads this list, says what each gap needs,
 reports what this machine already has (an upstream, a key, a state file), and

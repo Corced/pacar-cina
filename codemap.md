@@ -41,6 +41,8 @@ jobs, donations and the chat ledger never do). `HANDOFF.md` is the authoritative
 | File | Role |
 |---|---|
 | `README.md` | the reference manual — routes, env vars with defaults, mint protocol, model ids, what is deliberately not done |
+| `DEPLOYMENT.md` | host setup for the frontend and backend together — one process, Docker or systemd, TLS, state and host checks |
+| `DEPLOYMENT_QUICKSTART.md` | free-tier credential runbooks and the external gap checks |
 | `HANDOFF.md` | orientation note: what works, what does not, and the traps that have already bitten someone |
 | `INSTRUCTION.md` | one-page operator guide: first run, the pages, the checks, and what to watch for |
 | `package.json` | zero-dependency manifest + scripts: `start`, `build`, `hub`, `check` |

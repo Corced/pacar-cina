@@ -1,6 +1,6 @@
 # How to run this - and what to watch for
 
-A one-page operator guide. The depth lives elsewhere: [`README.md`](README.md) for routes and settings, [`HANDOFF.md`](HANDOFF.md) for honest status and gap runbooks. For credentials and free tiers, read [`DEPLOYMENT_QUICKSTART.md`](DEPLOYMENT_QUICKSTART.md); its sources are in [`docs/FREE_TIER_RESEARCH.md`](docs/FREE_TIER_RESEARCH.md).
+A one-page operator guide. The depth lives elsewhere: [`README.md`](README.md) for routes and settings, [`HANDOFF.md`](HANDOFF.md) for honest status and gap runbooks. To put this online, read [`DEPLOYMENT.md`](DEPLOYMENT.md) for hosting frontend and backend together. For credentials and free tiers, read [`DEPLOYMENT_QUICKSTART.md`](DEPLOYMENT_QUICKSTART.md); its sources are in [`docs/FREE_TIER_RESEARCH.md`](docs/FREE_TIER_RESEARCH.md).
 
 ## What you are running
 
@@ -124,6 +124,7 @@ Then, in rougher order of surprise:
 | Every route, setting and model id | [`README.md`](README.md) |
 | What is proven and how to close each gap | [`HANDOFF.md`](HANDOFF.md) |
 | Start here as a newcomer | [`START-HERE.md`](START-HERE.md) |
+| Host frontend and backend together | [`DEPLOYMENT.md`](DEPLOYMENT.md) |
 | Credentials and free tiers | [`DEPLOYMENT_QUICKSTART.md`](DEPLOYMENT_QUICKSTART.md) |
 | How the code is organised | [`codemap.md`](codemap.md) |
 | The mint loop and hub internals | [`server/codemap.md`](server/codemap.md) |
