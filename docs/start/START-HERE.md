@@ -4,8 +4,8 @@ A working copy of one small protocol: the captcha-minter page the upstream chat
 sites use, plus the relay that turns a minted captcha parameter into an
 OpenAI-shaped `/v1/chat/completions` call.
 
-New to the documentation? Read this page for the shape, `HANDOFF.md` for proof
-and open gaps, `README.md` for every route and setting, and `DEPLOYMENT.md` for
+New to the documentation? Read this page for the shape, `docs/archive/HANDOFF.md` for proof
+and open gaps, `README_REFERENCE.md` for every route and setting, and `DEPLOYMENT.md` for
 hosting the frontend and backend. Credential sources are in
 `DEPLOYMENT_QUICKSTART.md`.
 
@@ -14,7 +14,7 @@ deliberately dependency-free: no `npm install`, no bundler, no build step betwee
 the file you read and the file the browser runs. Plain HTML, CSS and ES5-ish
 `var`/`function` JavaScript, typed with JSDoc comments instead of TypeScript.
 
-Read this page once. Then keep `HANDOFF.md` open beside it: that is the evidence
+Read this page once. Then keep `docs/archive/HANDOFF.md` open beside it: that is the evidence
 ledger, every claim paired with the check that fails if the claim stops being
 true. This page is the orientation; that one is the proof.
 
@@ -123,7 +123,7 @@ prove it? If yes, it is ordinary work. If no, it belongs in the table above.
 
 ## Closing one of them
 
-1. Run the gap's runbook in `HANDOFF.md`. Every step is something one person with
+1. Run the gap's runbook in `docs/archive/HANDOFF.md`. Every step is something one person with
    a browser and a terminal can do in an afternoon; none needs a design change.
 2. Record the date, the exact command, and the observed output under that gap — a
    pasted answer beats a description. A failure is worth recording too:
@@ -146,17 +146,17 @@ Pin `GLM_KEYS=partner:…,admin:…` or the hub generates fresh keys every start
 prints them once. Deploying is one always-on process with a volume, no `npm run
 build` (the hub serves `public/` directly), one replica, `NODE_ENV=production`
 (or `HOST=0.0.0.0`), `GLM_STATE_FILE` on the volume, and `GLM_TRUST_PROXY=1` +
-`GLM_PUBLIC_URL=https://…` behind the platform's TLS. See [`DEPLOYMENT.md`](DEPLOYMENT.md)
-for a host-by-host walkthrough and [`README.md`](README.md) "Deploying it" for
+`GLM_PUBLIC_URL=https://…` behind the platform's TLS. See [`DEPLOYMENT.md`](../guides/DEPLOYMENT.md)
+for a host-by-host walkthrough and [`README_REFERENCE.md`](../reference/README_REFERENCE.md) "Deploying it" for
 the reasons.
 
 ## Where the truth lives
 
 | File | What it is |
 | --- | --- |
-| `README.md` | the user manual: routes, every setting, the role table, deployment |
-| `HANDOFF.md` | the evidence ledger: what works, what was closed and how, the five open gaps with runbooks, traps and conventions |
+| `README_REFERENCE.md` | the user manual: routes, every setting, the role table, deployment |
+| `docs/archive/HANDOFF.md` | the evidence ledger: what works, what was closed and how, the five open gaps with runbooks, traps and conventions |
 | `codemap.md`, `server/codemap.md`, `public/codemap.md` | architecture, data flow, and where each behaviour is implemented |
 | `check-*.mjs` | the proof. Each failure names the behaviour it protects |
-| `doctor.mjs` | the gap list, read from `HANDOFF.md` so it cannot list a gap twice |
-| `INSTRUCTION.md` | how to work on this repo without breaking its rules |
+| `doctor.mjs` | the gap list, read from `docs/archive/HANDOFF.md` so it cannot list a gap twice |
+| `docs/guides/INSTRUCTION.md` | how to work on this repo without breaking its rules |

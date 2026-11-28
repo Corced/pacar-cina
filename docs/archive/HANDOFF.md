@@ -3,7 +3,11 @@
 Everything you need to pick this up without reading the whole `app/` tree.
 Written for someone who did not build it. Maintained by **Corced**.
 
-**New here? Read [`START-HERE.md`](START-HERE.md) first** — the orientation pass:
+**Archive status:** this file is retained as an evidence ledger and is still
+parsed by checks. For current navigation use `README.md`; for practical guides
+use `docs/guides/`.
+
+**New here? Read [`START-HERE.md`](../start/START-HERE.md) first** — the orientation pass:
 the shape of the system, the four ideas that explain the code, and a separate
 table of the gaps that need a person rather than a commit. This note is the
 evidence behind it.
@@ -13,7 +17,7 @@ evidence behind it.
   [What is not done](#what-is-not-done-yet) — read those two before trusting
   anything else, including the pages.
 - **Traps:** [Before you change anything](#before-you-change-anything).
-- `README.md` is the long version (routes, every setting, the protocol in full).
+- `README_REFERENCE.md` is the long version (routes, every setting, the protocol in full).
 
 ---
 
@@ -385,7 +389,7 @@ what a pass looks like, and where to record it. Every step is something one
 person with a browser and a terminal can do in an afternoon — none of them
 needs a change to the design.
 
-**Free-tier credential sources for all five gaps:** See [`DEPLOYMENT_QUICKSTART.md`](DEPLOYMENT_QUICKSTART.md) for free-tier credential flows for chat.z.ai, chatglm.cn, Aliyun Captcha, and Tor/SOCKS5 routing. It maps each gap to the sources that close it, the signup paths, and gotchas. Start there if you are deploying for the first time. For the actual host setup, see [`DEPLOYMENT.md`](DEPLOYMENT.md).
+**Free-tier credential sources for all five gaps:** See [`DEPLOYMENT_QUICKSTART.md`](../guides/DEPLOYMENT_QUICKSTART.md) for free-tier credential flows for chat.z.ai, chatglm.cn, Aliyun Captcha, and Tor/SOCKS5 routing. It maps each gap to the sources that close it, the signup paths, and gotchas. Start there if you are deploying for the first time. For the actual host setup, see [`DEPLOYMENT.md`](../guides/DEPLOYMENT.md).
 
 **Start with `node doctor.mjs`.** It reads this list, says what each gap needs,
 reports what this machine already has (an upstream, a key, a state file), and
@@ -732,7 +736,7 @@ Dockerfile            one always-on image; .dockerignore keeps secrets out of it
 .repos/               downloaded reference sources — never published.
 ```
 
-`README.md` is the long version: every route with its auth requirement, every
+`README_REFERENCE.md` is the long version: every route with its auth requirement, every
 environment variable with its default and the reason for it, and the mint
 protocol written out as a message diagram.
 

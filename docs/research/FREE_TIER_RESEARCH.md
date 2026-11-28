@@ -2,7 +2,7 @@
 
 Researched 2026-11-26; reviewed against the implementation on 2026-11-27. External prices, quotas and console layouts change without notice. Verify them at the linked official sources before relying on them.
 
-This file records third-party facts and how they meet this repo. It is not an operator runbook. For commands and environment values, read `DEPLOYMENT_QUICKSTART.md` and `README.md`.
+This file records third-party facts and how they meet this repo. It is not an operator runbook. For commands and environment values, read [`DEPLOYMENT_QUICKSTART.md`](../guides/DEPLOYMENT_QUICKSTART.md) and [`README_REFERENCE.md`](../reference/README_REFERENCE.md).
 
 Services covered:
 

@@ -1,6 +1,6 @@
 # Free-Tier Deployment Quickstart
 
-This guide maps the five gaps in `START-HERE.md` to credential sources and local checks. The hub itself has no runtime dependencies; external APIs may charge after a trial or outside their free models. Costs, quotas and console layouts change, so verify them at the linked official sources. Details are in `docs/FREE_TIER_RESEARCH.md`.
+This guide maps the five gaps in `docs/start/START-HERE.md` to credential sources and local checks. The hub itself has no runtime dependencies; external APIs may charge after a trial or outside their free models. Costs, quotas and console layouts change, so verify them at the linked official sources. Details are in `../research/FREE_TIER_RESEARCH.md`.
 
 | Gap | Need | What is actually free | Verification |
 |---|---|---|---|
@@ -47,13 +47,13 @@ There is no `GLM_CHAT_SUFFIX` variable. A suffix is part of the model id.
 4. Start the hub with `npm run hub:env`, sign in as admin, open a real minter tab and wait for a minted param to enter the pool.
 5. Sign in as admin and `POST /captcha/verify` with `{fp, value}` from `/tokens?all=1`, or `{param}` with the serialized value. The route requires an admin session. `/status` reports the captcha counters.
 
-This repo does not accept an Aliyun RAM AccessKey. The hub POSTs `{sceneId, appkey, data}` to `GLM_CAPTCHA_VERIFY_URL`; the appkey is the public demo value. RAM policies and signed `VerifyIntelligentCaptcha` calls belong to a different verifier, not this one. See `docs/FREE_TIER_RESEARCH.md` §1.
+This repo does not accept an Aliyun RAM AccessKey. The hub POSTs `{sceneId, appkey, data}` to `GLM_CAPTCHA_VERIFY_URL`; the appkey is the public demo value. RAM policies and signed `VerifyIntelligentCaptcha` calls belong to a different verifier, not this one. See `../research/FREE_TIER_RESEARCH.md` §1.
 
 The captured scene (`no8xfe`) ends real mints at `captcha mint timeout`. A scene from your own console is part of what closes this gap.
 
 ## Gap 4: minter tab stability
 
-No credential needed. Start the hub with `npm run hub:env`, open `http://127.0.0.1:5082/` in a real unminimised tab, sign in and open the minter. Watch `minter.served` in `/status` or the panel for 30 minutes. Reconnect lines mean a failed run. Capture a 390 px screenshot and name the elements that differ from the reference described in `HANDOFF.md` gap 4.
+No credential needed. Start the hub with `npm run hub:env`, open `http://127.0.0.1:5082/` in a real unminimised tab, sign in and open the minter. Watch `minter.served` in `/status` or the panel for 30 minutes. Reconnect lines mean a failed run. Capture a 390 px screenshot and name the elements that differ from the reference described in `docs/archive/HANDOFF.md` gap 4.
 
 ## Gap 5: chatglm.cn
 
@@ -101,7 +101,7 @@ GLM_CAPTCHA_REGION=sgp
 # GLM_STATE_FILE=../glm-state/people.json
 ```
 
-Pin role keys, `SESSION_SECRET`, `GLM_PUBLIC_URL` and `GLM_TRUST_PROXY` for a longer-lived deployment. The annotated list is in `.env.example`; the reasons are in `README.md` under "Deploying it".
+Pin role keys, `SESSION_SECRET`, `GLM_PUBLIC_URL` and `GLM_TRUST_PROXY` for a longer-lived deployment. The annotated list is in `.env.example`; the reasons are in `README_REFERENCE.md` under "Deploying it".
 
 ## Gotchas
 
@@ -115,6 +115,6 @@ Pin role keys, `SESSION_SECRET`, `GLM_PUBLIC_URL` and `GLM_TRUST_PROXY` for a lo
 
 ## After the gaps close
 
-The five gaps cover credentials and observation. They do not turn the hub into a hosted service. You still choose one always-on process, one volume and a TLS terminator; see [`DEPLOYMENT.md`](DEPLOYMENT.md) for host-by-host steps and `README.md` "Deploying it" for the reasons. `INSTRUCTION.md` has the operator checklist.
+The five gaps cover credentials and observation. They do not turn the hub into a hosted service. You still choose one always-on process, one volume and a TLS terminator; see [`DEPLOYMENT.md`](DEPLOYMENT.md) for host-by-host steps and the reference manual "Deploying it" section for the reasons, then read the checked evidence in [`HANDOFF.md`](../archive/HANDOFF.md). This ledger is historical; newer practical guidance lives in `docs/guides/`. `docs/guides/INSTRUCTION.md` has the operator checklist.
 
-Research source: `docs/FREE_TIER_RESEARCH.md`. Verification: `node doctor.mjs` and `node doctor.mjs live`. For the system itself, read `START-HERE.md`, `HANDOFF.md` and `README.md`.
+Research source: `docs/research/FREE_TIER_RESEARCH.md`. Verification: `node doctor.mjs` and `node doctor.mjs live`. For the system itself, read `docs/start/START-HERE.md`, `docs/archive/HANDOFF.md` and `docs/reference/README_REFERENCE.md`.

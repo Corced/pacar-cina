@@ -1,6 +1,6 @@
 // doctor.mjs - one command that says what is still open and what to type next.
 //
-// Every gap in HANDOFF.md needs something this machine does not have yet: an
+// Every gap in docs/archive/HANDOFF.md needs something this machine does not have yet: an
 // upstream credential, a real browser, a proxy, a long observation. Finding
 // that out by reading seven runbooks is the friction this removes. It reads
 // the note (never edits it), probes only what needs no secret, and starts its
@@ -40,11 +40,11 @@ function gaps(text) {
 function closing(n) {
   return {
     1: 'a credential: contribute one with POST /upstream/keys, or set GLM_UPSTREAM + GLM_UPSTREAM_KEY, then `node doctor.mjs live`',
-    2: 'a real browser: HANDOFF.md gap 2 (sign in, watch /minter/ws, verify the param)',
+    2: 'a real browser: docs/archive/HANDOFF.md gap 2 (sign in, watch /minter/ws, verify the param)',
     3: 'the same credential, once per suffix: `node doctor.mjs live z.ai/glm-4.7-think`',
-    4: 'time and a screenshot: HANDOFF.md gap 4 (30 min tab, 390 px diff)',
+    4: 'time and a screenshot: docs/archive/HANDOFF.md gap 4 (30 min tab, 390 px diff)',
     5: 'a chatglm.cn credential: `node doctor.mjs live cn/glm-4.7`',
-  }[n] || 'HANDOFF.md, gap ' + n;
+  }[n] || 'docs/archive/HANDOFF.md, gap ' + n;
 }
 
 /* ── the little pure bits, so --self-test can hold them ───────────────────── */
@@ -80,14 +80,14 @@ function stateFileFacts(file) {
 /* ── report ───────────────────────────────────────────────────────────────── */
 
 function report() {
-  const notePath = join(ROOT, 'HANDOFF.md');
+  const notePath = join(ROOT, 'docs/archive/HANDOFF.md');
   const note = readFileSync(notePath, 'utf8');
   const list = gaps(note);
 
   console.log('glm2api doctor  ' + new Date().toISOString().slice(0, 10)
     + '  node ' + process.version + '  (no dependencies)');
   console.log('');
-  console.log('Open gaps in HANDOFF.md: ' + list.length + '   (run `npm run check` for what is proven)');
+  console.log('Open gaps in docs/archive/HANDOFF.md: ' + list.length + '   (run `npm run check` for what is proven)');
   console.log('');
   for (const g of list) {
     console.log('  ' + String(g.n).padEnd(2) + ' ' + g.title);
@@ -177,7 +177,7 @@ async function live(modelArg) {
     console.log(text.slice(0, 500) + (text.length > 500 ? ' …' : ''));
     console.log('');
     if (verdict === 'proven') {
-      console.log('PROVEN: a real completion came back. Record it in HANDOFF.md, gap 1:');
+      console.log('PROVEN: a real completion came back. Record it in docs/archive/HANDOFF.md, gap 1:');
       console.log('  ' + new Date().toISOString().slice(0, 10) + '  ' + model + '  -> 200, x-glm-pool='
         + (r.headers.get('x-glm-pool') || '-'));
       console.log('Then delete that gap (and lower the gap floor in check-docs.mjs in the same edit).');
@@ -245,7 +245,7 @@ async function startHub(origin, key) {
  * Quiet by design: it runs inside `npm run check`, where only failures should
  * be audible. */
 function selfTest() {
-  const note = readFileSync(join(ROOT, 'HANDOFF.md'), 'utf8');
+  const note = readFileSync(join(ROOT, 'docs/archive/HANDOFF.md'), 'utf8');
   const list = gaps(note);
   const ok = (name, cond, detail) => {
     if (cond) { console.log('ok   ' + name); return; }
@@ -256,7 +256,7 @@ function selfTest() {
   ok('the note still lists its numbered gaps', list.length >= 5, 'found ' + list.length);
   ok('every gap has a title', list.every((g) => g.title.length > 8), JSON.stringify(list.map((g) => g.n)));
   ok('every gap has a way to close it', list.every((g) => closing(g.n).length > 10));
-  ok('an unknown gap number still points at the runbook', closing(99) === 'HANDOFF.md, gap 99', closing(99));
+  ok('an unknown gap number still points at the runbook', closing(99) === 'docs/archive/HANDOFF.md, gap 99', closing(99));
   ok('a long key is masked, not printed',
     mask('glm-superadmin-0123456789abcdef') === 'glm-…def'
       && !mask('glm-superadmin-0123456789abcdef').includes('superadmin'),

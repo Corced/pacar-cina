@@ -28,25 +28,25 @@ credential rejection. Identity is revocable at runtime: a superadmin creates
 people, an admin revokes or rotates, and the person's key, live sessions and open
 sockets all stop at once — with the directory kept in `GLM_STATE_FILE` so a
 revocation survives a restart. Not done, and stated as such in the UI and in
-`HANDOFF.md`: no call to the real chat.z.ai / chatglm.cn has succeeded (the path
+`docs/archive/HANDOFF.md`: no call to the real chat.z.ai / chatglm.cn has succeeded (the path
 is proven against a local stub), a real widget mint has never been captured,
 egress routing is a toggle, and everything except the people directory and the
 minted-token pool is still in memory on purpose (minted params are single-use
 Aliyun answers, so they may sit in `GLM_STATE_FILE` until they expire; sessions,
-jobs, donations and the chat ledger never do). `HANDOFF.md` is the authoritative honest-status document;
-`README.md` is the reference (every route, every setting, the protocol in full).
+jobs, donations and the chat ledger never do). `docs/archive/HANDOFF.md` is the authoritative honest-status document;
+`README_REFERENCE.md` is the reference (every route, every setting, the protocol in full).
 
 ## Root assets
 
 | File | Role |
 |---|---|
-| `README.md` | the reference manual — routes, env vars with defaults, mint protocol, model ids, what is deliberately not done |
-| `DEPLOYMENT.md` | host setup for the frontend and backend together — one process, Docker or systemd, TLS, state and host checks |
-| `DEPLOYMENT_QUICKSTART.md` | free-tier credential runbooks and the external gap checks |
-| `HANDOFF.md` | orientation note: what works, what does not, and the traps that have already bitten someone |
-| `INSTRUCTION.md` | one-page operator guide: first run, the pages, the checks, and what to watch for |
+| `README_REFERENCE.md` | the reference manual — routes, env vars with defaults, mint protocol, model ids, what is deliberately not done |
+| `docs/guides/DEPLOYMENT.md` | host setup for the frontend and backend together — one process, Docker or systemd, TLS, state and host checks |
+| `docs/guides/DEPLOYMENT_QUICKSTART.md` | free-tier credential runbooks and the external gap checks |
+| `docs/archive/HANDOFF.md` | orientation note: what works, what does not, and the traps that have already bitten someone |
+| `docs/guides/INSTRUCTION.md` | one-page operator guide: first run, the pages, the checks, and what to watch for |
 | `package.json` | zero-dependency manifest + scripts: `start`, `build`, `hub`, `check` |
-| `START-HERE.md` | the orientation page: the shape of the system, the four ideas behind the code, what is proven, and which gaps need a person rather than a commit |
+| `docs/start/START-HERE.md` | the orientation page: the shape of the system, the four ideas behind the code, what is proven, and which gaps need a person rather than a commit |
 | `build.mjs` | copies `public/` → `dist/`; **fails** if any server code would land in `dist/` or a required page is missing |
 | `server/hub.mjs` | the whole backend (see `server/codemap.md`) |
 | `server/ws.mjs` | hand-written RFC 6455 WebSocket server |
@@ -56,7 +56,7 @@ jobs, donations and the chat ledger never do). `HANDOFF.md` is the authoritative
 | `dist/` | build output — generated, never edit |
 | `.repos/` | downloaded reference-project archives (research material, never published) |
 | `check-*.mjs` | the suites `npm run check` runs |
-| `doctor.mjs` | reads the gap list from `HANDOFF.md` and prints what closes each one; `live` makes one real upstream call and reports `PROVEN` or the exact refusal |
+| `doctor.mjs` | reads the gap list from `docs/archive/HANDOFF.md` and prints what closes each one; `live` makes one real upstream call and reports `PROVEN` or the exact refusal |
 | `check-chat.mjs` | chat forwarding against a local upstream stub: signing, pool spend, refund, the per-address and per-caller 429 |
 | `check-people.mjs` | the people directory: create, revoke (key + sessions + sockets), rotate, the state file, hashing at rest, the seeded superadmin across a restart |
 | `fetch-repos.mjs` | downloads the three reference projects into `.repos/` |
@@ -93,9 +93,9 @@ Three flows carry the system, each written out as an arrow trace in
 | Change a page's behaviour | `public/codemap.md` for the page→script→route table |
 | Change the mint protocol | `server/hub.mjs` `onMinterSocket` **and** `public/minter.js` — the two must move together |
 | Change the captcha widget config | `GET /config` in the hub *and* `glm-client.js loadConfig()` |
-| Verify anything | `npm run check` (nine suites + the doctor's self-test, 350 counted assertions) - see `HANDOFF.md` "Verifying" |
+| Verify anything | `npm run check` (nine suites + the doctor's self-test, 350 counted assertions) - see `docs/archive/HANDOFF.md` "Verifying" |
 
-## Traps (from `HANDOFF.md`, still true)
+## Traps (from `docs/archive/HANDOFF.md`, still true)
 
 1. `/` is not the minter — it redirects to `login.html`, or to your role's page.
 2. `minter.html` does not exist; the minter is `index.html`.

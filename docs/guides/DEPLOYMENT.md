@@ -1,6 +1,6 @@
 # Deploy the frontend and backend
 
-This is the host setup guide: frontend, backend, TLS, persistent state and verification. [`DEPLOYMENT_QUICKSTART.md`](DEPLOYMENT_QUICKSTART.md) is the credential guide. [`docs/FREE_TIER_RESEARCH.md`](docs/FREE_TIER_RESEARCH.md) holds the dated source facts.
+This is the host setup guide: frontend, backend, TLS, persistent state and verification. [`DEPLOYMENT_QUICKSTART.md`](DEPLOYMENT_QUICKSTART.md) is the credential guide. [`FREE_TIER_RESEARCH.md`](../research/FREE_TIER_RESEARCH.md) holds the dated source facts.
 
 ## What gets deployed
 

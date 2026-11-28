@@ -23,8 +23,8 @@ function check(ok, what, detail) {
   else { failures++; console.log('FAIL ' + what + (detail ? '  — ' + detail : '')); }
 }
 
-const note = readFileSync(join(root, 'HANDOFF.md'), 'utf8');
-const readme = readFileSync(join(root, 'README.md'), 'utf8');
+const note = readFileSync(join(root, 'docs', 'archive', 'HANDOFF.md'), 'utf8');
+const readme = readFileSync(join(root, 'docs', 'reference', 'README_REFERENCE.md'), 'utf8');
 const hub = readFileSync(join(root, 'server', 'hub.mjs'), 'utf8');
 
 /* ── it is a hand-off note, not a stub ── */
@@ -104,12 +104,17 @@ check(closers >= 5, 'most gaps name what would close them',
  * note already owns: which gaps are open, and how many assertions the suites
  * carry. Both are checked here, so closing a gap or re-counting a suite cannot
  * leave the introduction quietly wrong. */
-const startHere = existsSync(join(root, 'START-HERE.md'))
-  ? readFileSync(join(root, 'START-HERE.md'), 'utf8') : '';
+const startHere = existsSync(join(root, 'docs', 'start', 'START-HERE.md'))
+  ? readFileSync(join(root, 'docs', 'start', 'START-HERE.md'), 'utf8') : '';
 check(startHere.length > 2000, 'the newcomer page exists and is substantial',
   startHere.length + ' bytes');
 check(readme.includes('START-HERE.md') && note.includes('START-HERE.md'),
-  'the README and the note both point at the newcomer page');
+  'the reference and the note point at the newcomer page');
+const rootMap = readFileSync(join(root, 'README.md'), 'utf8');
+check(rootMap.length < 6000, 'the root README stays a map', rootMap.length + ' bytes');
+check(rootMap.includes('docs/start/START-HERE.md')
+  && rootMap.includes('docs/reference/README_REFERENCE.md'),
+  'the root README points at the newcomer page and a detailed reference');
 
 const startSettings = namedSettings(startHere);
 const stranger = startSettings.filter((s) => !hub.includes(s));

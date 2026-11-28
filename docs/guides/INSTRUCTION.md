@@ -1,6 +1,6 @@
 # How to run this - and what to watch for
 
-A one-page operator guide. The depth lives elsewhere: [`README.md`](README.md) for routes and settings, [`HANDOFF.md`](HANDOFF.md) for honest status and gap runbooks. To put this online, read [`DEPLOYMENT.md`](DEPLOYMENT.md) for hosting frontend and backend together. For credentials and free tiers, read [`DEPLOYMENT_QUICKSTART.md`](DEPLOYMENT_QUICKSTART.md); its sources are in [`docs/FREE_TIER_RESEARCH.md`](docs/FREE_TIER_RESEARCH.md).
+A one-page operator guide. The depth lives elsewhere: [`README_REFERENCE.md`](../reference/README_REFERENCE.md) for routes and settings, [`HANDOFF.md`](../archive/HANDOFF.md) for honest status and gap runbooks. To put this online, read [`DEPLOYMENT.md`](DEPLOYMENT.md) for hosting frontend and backend together. For credentials and free tiers, read [`DEPLOYMENT_QUICKSTART.md`](DEPLOYMENT_QUICKSTART.md); its sources are in [`FREE_TIER_RESEARCH.md`](../research/FREE_TIER_RESEARCH.md).
 
 ## What you are running
 
@@ -67,7 +67,7 @@ node doctor.mjs live               # one real z.ai call after GLM_UPSTREAM + key
 node doctor.mjs live cn/glm-5.3    # one real chatglm.cn call
 ```
 
-`doctor.mjs` reads the gap list from `HANDOFF.md`, so it cannot list a closed gap. It never prints a key and never writes a file. `live` takes an optional model id, not environment assignments. Set those before the command. When it prints `PROVEN`, record the line under the gap in `HANDOFF.md` and delete the gap; the doctor only does the mechanical part.
+`doctor.mjs` reads the gap list from `docs/archive/HANDOFF.md`, so it cannot list a closed gap. It never prints a key and never writes a file. `live` takes an optional model id, not environment assignments. Set those before the command. When it prints `PROVEN`, record the line under the gap in `docs/archive/HANDOFF.md` and delete the gap; the doctor only does the mechanical part.
 
 ## Running it for real
 
@@ -91,7 +91,7 @@ $env:GLM_UPSTREAM='https://chat.z.ai'   # an ORIGIN; the model id picks the path
 $env:GLM_UPSTREAM_KEY='<bearer token>'
 ```
 
-Without `GLM_UPSTREAM`, `/v1/chat/completions` answers `501` with the reason. That is the design, not a misconfiguration. For `cn/…` models, use `GLM_UPSTREAM=https://chatglm.cn` and a chatglm.cn key. Credential runbooks are in `DEPLOYMENT_QUICKSTART.md`.
+Without `GLM_UPSTREAM`, `/v1/chat/completions` answers `501` with the reason. That is the design, not a misconfiguration. For `cn/…` models, use `GLM_UPSTREAM=https://chatglm.cn` and a chatglm.cn key. Credential runbooks are in `docs/guides/DEPLOYMENT_QUICKSTART.md`.
 
 ## What to pay attention to
 
@@ -110,8 +110,8 @@ Then, in rougher order of surprise:
 10. `GLM_STATE_FILE` holds names, roles, salts and scrypt hashes, never keys. Losing it costs you the seeded superadmin key unless `GLM_SUPERADMIN` is set. It is written `0600` on POSIX; on Windows the folder is the real control. Keep it out of the repo.
 11. Hashing protects the store, not the wire. A key is posted to `/session` in the request body. From another machine it needs TLS in front of the hub.
 12. The default bind is loopback (`HOST=127.0.0.1`). To serve another machine, set `HOST=0.0.0.0` and put a real proxy in front. The hub speaks plain HTTP. It limits chat to four in-flight requests per address and identity, and donations to four Aliyun exchanges per caller. The proxy supplies global rate limits, connection caps and TLS. Donating sessions buys no chat capacity.
-13. `check-docs.mjs` parses `HANDOFF.md` and `README.md`: every setting name must exist in `server/hub.mjs`, every `public/` or `server/` path must exist, and the numbered-gap list has a floor. If you close a gap, delete it and lower the floor in the same edit.
-14. Suffixes are additive and declarative. `-think`, `-search` and `-deepresearch` rewrite the model id and set flags; panel toggles are defaults OR'd with suffixes. What the live upstream does with them is still unproven, `HANDOFF.md` gap 3.
+13. `check-docs.mjs` parses `docs/archive/HANDOFF.md` and `docs/reference/README_REFERENCE.md`: every setting name must exist in `server/hub.mjs`, every `public/` or `server/` path must exist, and the numbered-gap list has a floor. If you close a gap, delete it and lower the floor in the same edit.
+14. Suffixes are additive and declarative. `-think`, `-search` and `-deepresearch` rewrite the model id and set flags; panel toggles are defaults OR'd with suffixes. What the live upstream does with them is still unproven, `docs/archive/HANDOFF.md` gap 3.
 15. Pool size is `TOKEN_TARGET` and `TOKEN_LOWWATER`, not `GLM_*`. A typo silently does nothing because unset means the recorded default.
 16. PowerShell uses `$env:NAME='value'`, not `export`; `curl` is an alias for `Invoke-WebRequest`, so use `curl.exe` for the real one; a long-running `node server/hub.mjs` occupies the terminal, so use a second one.
 17. A model id is parsed from the right. `z.ai/glm-5.3-max-think` is base `glm-5.3-max` plus `-think` and forwards with `x-glm-model-known: false`. The base must start with `glm` unless pinned in `GLM_MODEL_EXTRA`. Hand back `x-glm-chat` as `chat_id` to continue a conversation; another caller's id answers the same 404 as a missing one; a second turn during a first gets 409. A restart turns the next continuation into 404 because conversations are memory-only.
@@ -121,11 +121,11 @@ Then, in rougher order of surprise:
 
 | You want | Read |
 |---|---|
-| Every route, setting and model id | [`README.md`](README.md) |
-| What is proven and how to close each gap | [`HANDOFF.md`](HANDOFF.md) |
-| Start here as a newcomer | [`START-HERE.md`](START-HERE.md) |
+| Every route, setting and model id | [`README_REFERENCE.md`](../reference/README_REFERENCE.md) |
+| What is proven and how to close each gap | [`HANDOFF.md`](../archive/HANDOFF.md) |
+| Start here as a newcomer | [`START-HERE.md`](../start/START-HERE.md) |
 | Host frontend and backend together | [`DEPLOYMENT.md`](DEPLOYMENT.md) |
 | Credentials and free tiers | [`DEPLOYMENT_QUICKSTART.md`](DEPLOYMENT_QUICKSTART.md) |
-| How the code is organised | [`codemap.md`](codemap.md) |
-| The mint loop and hub internals | [`server/codemap.md`](server/codemap.md) |
-| Page, script and route wiring | [`public/codemap.md`](public/codemap.md) |
+| How the code is organised | [`codemap.md`](../reference/codemap.md) |
+| The mint loop and hub internals | [`server/codemap.md`](../reference/server/codemap.md) |
+| Page, script and route wiring | [`public/codemap.md`](../reference/public/codemap.md) |
